@@ -24,6 +24,7 @@ Contents
 ----
 
  - Editable design files for 3D-printed parts (in OpenSCAD format)
+ - new files are not made in openscad sorry
 
 [projector\_code](https://github.com/bpatern/EIKII_multifunctional_artsprojector/tree/main/projector_code)
 ----
@@ -31,10 +32,10 @@ Contents
  - Code for the ESP32 micro-controller, raspberry Pi Pico 2W instruction parsing controller, and optical printer code that controls the projector (Arduino IDE)
  - optical printer functionality uses [Matt McWilliams' mCopy](https://github.com/sixteenmillimeter/mcopy) for sequencing. led support is enabled in sort of a hackneyed way, that currently only really works with my setup. id like to be able to have mCopy recognize the LED and its brightness control but I can't get mCopy and the led control scheme used in this code to shake hands. 
 
-[stl](https://github.com/z-l-p/film-projector-retrofit/tree/main/stl)
+[stl](https://github.com/bpatern/EIKII_multifunctional_artsprojector/tree/main/stl)
 ----
 
- - Printable files for 3D-printed parts (rendered from openscad)
+ - Printable files for 3D-printed parts
 
 ![closeup of lamp block](docs/images/IMG_3381.jpg)
 ![projector in rain](docs/images/IMG_3102.jpg)
