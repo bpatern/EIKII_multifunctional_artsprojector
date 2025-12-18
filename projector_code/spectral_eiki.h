@@ -1,6 +1,11 @@
 // Use this file to define projector-specific configurations, 
 // so you don't need to modify the main code for each projector you build
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//// ---> PLEASE PLEASE PLEASE DOUBLE CHECK YOUR GPIO ASSIGNMENTS! YOU GENERALLY DO NOT HAVE TO FOLLOW MINE BUT LIKE DONT PUT AN ANALOG PIN INPUT ON A MCU PIN THAT ISNT ANALOG <--- ////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
 // BASIC SETUP OPTIONS (enable the options based on your hardware choices)
 #define enableShutter 1      // 0 = LED stays on all the time (in case physical shutter is installed), 1 = use encoder to blink LED for digital shutter
 #define enableShutterPots 1  // 0 = use hard-coded shutterBlades and shutterAngle variables, 1 = use pots to control these functions
