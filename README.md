@@ -1,7 +1,4 @@
-This is a development platform to support the [Wandering 16mm Projector Retrofit WIKI](https://www.filmlabs.org/wiki/en/meetings_projects/spectral/mire-wandering/wandering-16mmprojection/start) on filmlabs.org. Go there for complete documentation.
-=====
 
-----
 
 **THE ORIGINAL GOAL**
 **Make a 16mm film projector portable and playable like an instrument. Retrofit with a DC motor and LED lamp, controlled by ESP32 micro-controller.**
