@@ -36,5 +36,9 @@ Contents
 
  - Printable files for 3D-printed parts (rendered from openscad)
 
+![closeup of lamp block](docs/images/IMG_3381.jpg)
+![projector in rain](docs/images/IMG_3102.jpg)
+
+
 
 
