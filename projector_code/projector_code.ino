@@ -1,4 +1,4 @@
-
+//i've moved a lot around. biggest change i had to make was making certain variables global like those at the beginning of CalcFPS. if i didnt make this change i would get crashing if the projector was running for a Long Time. debug stated it was fetching a value before the value was even written. this is probably a result of additional tasks needing to happen during the main loop. splitting operations out to multicore would maybe help, or using the ESP32-s3 with additional SRAM
 
 // ------------------------------------------
 // SPECTRAL Wandering Sounds + Images Seminar
@@ -213,7 +213,7 @@ int receivedRecvdConfirm;
 
 
 
-
+//calcFPS variables. esp memory was dumping them before...
 boolean newData = false;
 const byte numChars = 32;
 char receivedChars[numChars];
