@@ -27,7 +27,11 @@
 #include <Button2.h>             // https://github.com/LennartHennigs/Button2
 #include <Adafruit_NeoPixel.h>   // https://github.com/adafruit/Adafruit_NeoPixel
 
+#include <FastInterruptEncoder.h>
+
 #include <HardwareSerial.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 
 // Uncomment ONE of these to load preset configurations from the matching files
@@ -41,6 +45,9 @@
 #define EncA 16   // encoder pulse A (AS5047 sensor)
 #define EncB 4    // encoder pulse B (AS5047 sensor)
 #define EncCSN 5  // encoder SPI CSN Pin (AS5047 sensor) - Library also reserves GPIO 18, 19, 23 for SPI
+
+Encoder enc(EncA, EncB, FULLQUAD, 0);
+
 
 // OUTPUT PINS //
 #define escPin 22         // PWM output for ESC
@@ -103,6 +110,8 @@ int shutAnglePotVal;
 float shutAngleVal;
 float shutAngleValOld;
 
+volatile int as5047absAngle;
+
 
 
 
@@ -161,6 +170,29 @@ int motPWMPeriod = 1000000 / motPWMFreq;  // microseconds per pulse
 // (prototype must be declared _before_ we attach interrupt because ESP32 requires "IRAM_ATTR" flag which breaks typical Arduino behavior)
 void IRAM_ATTR pinChangeISR();
 void IRAM_ATTR send_LEDC();
+
+TaskHandle_t pcISR;
+TaskHandle_t ledCshutter;
+
+void pcISRCORE(void *pvparemeters) {
+  Serial.print("Digital shutter is executing on core ");
+  Serial.println(xPortGetCoreID());
+  for (;;)
+  {
+  if (enableShutter) {
+    attachInterrupt(EncA, pinChangeISR, CHANGE);
+    attachInterrupt(EncB, pinChangeISR, CHANGE);
+
+    if (enc.init()) {
+      Serial.println("PWM Encoder GOOD");
+    } else {
+      Serial.println("PWM Encoder ERROR");
+    }
+  }
+  vTaskDelete(pcISR);
+  }
+}
+
 // Start connection to the sensor.
 AS5X47 as5047(EncCSN);
 // will be used to read data from the magnetic encoder
@@ -254,6 +286,17 @@ elapsedMillis midiParseTimer;  // MS since last time we checked/updated the user
 
 void setup() {
 
+
+  xTaskCreatePinnedToCore(
+    pcISRCORE,
+    "pcISR",
+    10000,
+    NULL,
+    24,
+    &pcISR,
+    0);
+
+
   pinMode(ledPin, OUTPUT);  // LEDC setup will take care of this later, but force it now just in case we're using current-controlled dimming
   digitalWrite(ledPin, 1);  // turn off LED during startup to prevent film burns
 
@@ -282,13 +325,7 @@ void setup() {
   if (enableSafeSwitch) {
     pinMode(safeSwitch, INPUT_PULLUP);
   }
-  if (enableShutter) {
-    pinMode(EncA, INPUT);
-    pinMode(EncB, INPUT);
-    pinMode(EncI, INPUT);
-    attachInterrupt(EncA, pinChangeISR, CHANGE);
-    attachInterrupt(EncB, pinChangeISR, CHANGE);
-  }
+
 
   abOld = count = countOld = 0;
 
@@ -344,6 +381,10 @@ void setup() {
   //   ledcWrite(ledChannel, 1); // turn it off
   // }
 
+
+
+
+
   // Motor PWM setup
   ledcSetup(motPWMChannel, motPWMFreq, motPWMRes);  // configure motor PWM function using LEDC channel
   ledcAttachPin(escPin, motPWMChannel);             // attach the LEDC channel to the GPIO to be controlled
@@ -372,6 +413,7 @@ void setup() {
 /////////////////////////////////////////////
 
 void loop() {
+  as5047absAngle = map(as5047.readAngle(), 0, 360, 0, 100);
 
   // Time-critical IO happens in interrupts, but UI and decision-making happens at a slower pace in the main loop
 
@@ -398,6 +440,7 @@ void loop() {
     updateLed();
 
     externalcontrol();
+    // fixCount();
 
 
 
@@ -422,7 +465,7 @@ void loop() {
       Serial.print(", Count: ");
       Serial.print(count);
       Serial.print(", Single: ");
-      Serial.print(motSingle);
+      Serial.print(as5047.readAngle());
       Serial.print(", Lamp: ");
       Serial.print(shutterMap[count]);
       Serial.print(", Brightness: ");
@@ -450,77 +493,72 @@ void loop() {
 /////////////////////////////
 
 // On interrupt, read input pins, compute new state, and adjust count
-// This rotary encoder method counts all state changes (so 4x the number of "notches" on encoder) and is reliable with bouncy encoders
-// From https://arduino.stackexchange.com/questions/16365/reading-from-a-ky-040-rotary-encoder-with-digispark/16420#16420
+
+
+//updated rotary encoder reading to use esp32 hardware sections that look for pulse counts. this way pulses are noticed asynchronously rather than at the time of the interrupt.... the code within the interrupt wasn't really fast enough to both register a change and act on it. now rather than stopping when it notices something it acts more like a bear grabbing a fish from a stream for better or worse!
+//if one were to use a PICO instead, use the PIO to achieve the same. 
+//stm32 based stuff can use hw counters
 void IRAM_ATTR pinChangeISR() {
-  enum { upMask = 0x66,
-         downMask = 0x99 };
-  byte abNew = (digitalRead(EncA) << 1) | digitalRead(EncB);
-  byte criterion = abNew ^ abOld;
-  // Execute if this is a valid transition on A or B
-  if (criterion == 1 || criterion == 2) {
-    //FPSreal = 10000.0 / countPeriod;  // update FPS calc based on period between the 100 encoder counts (not signed)
-    //countPeriod = 0;
+  int encCountOld = enc.getTicks();
 
-    // There are 3 A or B transitions during each Index pulse. (We count them here, then take action in a child loop.)
-    if (digitalRead(EncI)) {
-      EncIndexCount++;
+  enc.loop();
+
+  if (digitalRead(EncI)) {
+    EncIndexCount++;
+  } else {
+    EncIndexCount = 0;
+  }
+  //   //   // moving forwards ...
+  if (enc.getTicks() > encCountOld) {
+    //   //     // at index
+    if (EncIndexCount == 2) {  // reset counter on 'middle" transition during index condition
+      // count = 0;
+      if (opticalPrinter == 0) {
+        frame++;
+      } else {
+        frame--;
+      }
+
+      frame++;
+      FPSframe = 1000000.0 / framePeriod;  // update FPS calc based on period between each frame
+      framePeriod = 0;
     } else {
-      EncIndexCount = 0;
+      // normal forwards count
+      FPScount = 10000.0 / countPeriod;  // update FPS calc based on period between the 100 encoder counts
+      countPeriod = 0;
+      motModeReal = 1;  // mark that we're running forwards
     }
-    // moving forwards ...
-    if (upMask & (1 << (2 * abOld + abNew / 2))) {
-      // at index
-      if (EncIndexCount == 2) {  // reset counter on 'middle" transition during index condition
-        count = 0;
-        if (opticalPrinter == 0) {
-          frame++;
-        } else {
-          frame--;
-        }
 
-        // frame++;
-        FPSframe = 1000000.0 / framePeriod;  // update FPS calc based on period between each frame
-        framePeriod = 0;
+    count++;
+    // wrap around
+    if (count > countsPerFrame - 1) {
+      count = 0;
+    }
+  } else {
+    //   //     // moving backwards ...
+    if (EncIndexCount == 2) {  // reset counter on 'middle" transition during index condition
+      // at index
+      // count = 0;
+      if (opticalPrinter == 0) {
+        frame--;
       } else {
-        // normal forwards count
-        FPScount = 10000.0 / countPeriod;  // update FPS calc based on period between the 100 encoder counts
-        countPeriod = 0;
-        motModeReal = 1;  // mark that we're running forwards
+        frame++;
       }
-      count++;
-      // wrap around
-      if (count > countsPerFrame - 1) {
-        count = 0;
-      }
+      FPSframe = 1000000.0 / framePeriod;  // update FPS calc based on period between each frame
+      framePeriod = 0;
     } else {
-      // moving backwards ...
-      if (EncIndexCount == 2) {  // reset counter on 'middle" transition during index condition
-        // at index
-        count = 0;
-        if (opticalPrinter == 0) {
-          frame--;
-        } else {
-          frame++;
-        }
-        FPSframe = 1000000.0 / framePeriod;  // update FPS calc based on period between each frame
-        framePeriod = 0;
-      } else {
-        // normal backwards count
-        FPScount = 10000.0 / countPeriod;  // update FPS calc based on period between the 100 encoder counts
-        countPeriod = 0;
-        motModeReal = -1;  // mark that we're running backwards
-      }
-      count--;
-      // wrap around the circle instead of using negative steps
-      if (count < 0) {
-        count = countsPerFrame - 1;
-      }
+      // normal backwards count
+      FPScount = 10000.0 / countPeriod;  // update FPS calc based on period between the 100 encoder counts
+      countPeriod = 0;
+      motModeReal = -1;  // mark that we're running backwards
+    }
+    count--;
+    // wrap around the circle instead of using negative steps
+    if (count < 0) {
+      count = countsPerFrame - 1;
     }
   }
-  abOld = abNew;  // Save new state
 
-  // Update LED status for this encoder step
 
   bool shutterState = shutterMap[count];  // copy shutter state to local variable in case it changes during the ISR execution (not possible?)
   if (shutterState != shutterStateOld) {  // only update LED if shutter state changes (not every step)
@@ -616,7 +654,7 @@ void fixCount() {
 }
 
 // fill shutterMap array with boolean values to control LED state at each position of shutter rotation
-void updateShutterMap(byte shutterBlades, float shutterAngle) {
+void updateShutterMap(byte shutterBlades, float shutterAngle) { //move to core 0 with related interrupts
   //Serial.print("Update ShutterMap");
   // shutterBlades: number of virtual shutter blades (must be > 0)
   // shutterAngle: ratio between on/off for each shutter blade segment (0.5 = 180d)
@@ -760,6 +798,7 @@ void readUI() {
     Serial.print(safeMode);
 #endif
     Serial.println("");
+
   }
 
 
@@ -1076,7 +1115,7 @@ void parseData() {
 
 
 // compute the real FPS, based on encoder rotation, but averaged to reduce error
-void calcFPS() {
+void calcFPS() { //moveto core 0 with related interrupts
   noInterrupts();
   myFPScount = FPScount;        // copy volatile FPS to nonvolatile variable so it's safe
   myFPSframe = FPSframe;        // copy volatile FPS to nonvolatile variable so it's safe
@@ -1214,7 +1253,7 @@ void updateLed() {
   }
 }
 
-void updateMotor() {
+void updateMotor() { //move to core0 with related interrupts
 
   // mapped/clip motPotVal because kalman filter sometimes doesn't allow us to reach min/max)
   int motPotClipped = map(motPotVal, 40, 4045, 0, 4095);
