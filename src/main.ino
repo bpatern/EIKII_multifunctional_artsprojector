@@ -13,9 +13,11 @@
 // Future option exists for current-controlled dimming (set LedDimMode=0): Perhaps a log taper digipot controlled via SPI? Probably can't dim below 20% though.
 
 
-// TODO Nice but not essential:
-// put UI vars in struct, in case we want to receive them from a remote ESP connected via radio
-// if ESP32 Arduino core ever gets support for ledc output_invert method, we can simplify the ISR inverted condition
+// TODO LIST:
+// move "loop" code into freertos tasks
+// how do I make the creation of such into a function?
+// id assume with FREERTOS that one wouldn't need to put anything into loop. 
+// look into libraries which use FREERTOS tasks 
 
 // Include the libraries
 // NOTE: In 2023 this code was developed using the ESP32 Arduino core v2.0.9.
@@ -40,7 +42,6 @@
 #include "spectral_eiki.h"  // "Store projector-specific settings here"
 //#include "spectral_p26.h" // "Store projector-specific settings here"
 
-#include "declarations.h"
 
 
 // Encoder
