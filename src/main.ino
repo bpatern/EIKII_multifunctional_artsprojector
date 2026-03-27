@@ -193,9 +193,26 @@ void pcISRCORE(void *pvparemeters) {
       Serial.println("PWM Encoder ERROR");
     }
   }
-  vTaskDelete(pcISR);
+  vTaskDelay(10 / portTICK_PERIOD_MS);
   }
 }
+
+int musicMode = 0;
+
+
+void serialReadTask(void *pvparemeters) {
+  for (;;)
+  {
+  if (musicMode == 1) {
+    midiParser();
+    midiControlTakeover();
+  }
+    externalcontrol();
+  }
+  vTaskDelay(10 / portTICK_PERIOD_MS);
+
+}
+
 
 // Start connection to the sensor.
 AS5X47 as5047(EncCSN);
@@ -234,7 +251,6 @@ int pullDownPos = 20;
 int scanFlag = 0;
 
 //ext midi variables -- may use CC2 for optical printer
-int musicMode = 0;
 int CC1ProjSpeed;
 int CC3ProjBright;
 int CC2ProjBlades;
@@ -300,6 +316,75 @@ void setup() {
     &pcISR,
     0);
 
+  xTaskCreatePinnedToCore(
+    serialReadTask,
+    "serialReadTask",
+    10000,
+    NULL,
+    20,
+    NULL,
+    1
+  );
+
+  xTaskCreatePinnedToCore(
+    readUI,
+    "readUI",
+    16000,
+    NULL,
+    20,
+    NULL,
+    1
+  );
+
+  xTaskCreatePinnedToCore(
+    updateMotor,
+    "updateMotor",
+    16000,
+    NULL,
+    20,
+    NULL,
+    1
+  );
+
+    xTaskCreatePinnedToCore(
+        updateLed,
+        "updateLed",
+        16000,
+        NULL,
+        26,
+    NULL,
+    0
+  );
+
+      xTaskCreatePinnedToCore(
+    as5047MagCheck,
+    "as5047MagCheck",
+    16000,
+    NULL,
+    12,
+    NULL,
+    0
+  );
+
+        xTaskCreatePinnedToCore(
+    calcFPS,
+    "calcFPS",
+    16000,
+    NULL,
+    12,
+    NULL,
+    1
+  );
+
+          xTaskCreatePinnedToCore(
+    readEncoder,
+    "readEncoder",
+    16000,
+    NULL,
+    20,
+    NULL,
+    0
+  );
 
   pinMode(ledPin, OUTPUT);  // LEDC setup will take care of this later, but force it now just in case we're using current-controlled dimming
   digitalWrite(ledPin, 1);  // turn off LED during startup to prevent film burns
@@ -338,7 +423,7 @@ void setup() {
   updateStatusLED(0, 30, 0, 0);  // start with LED red while booting
 #endif
   pinMode(auxReceiver, INPUT_PULLUP);
-  Serial2.begin(4800, SERIAL_8N1, auxReceiver, auxTransmitter);
+  Serial2.begin(57600, SERIAL_8N1, auxReceiver, auxTransmitter);
 
   delay(200);
   Serial.println("-----------------------------");
@@ -412,12 +497,20 @@ void setup() {
   updateShutterMap(shutterBlades, shutterAngle);  //generate initial shutter map ... (1, 0.05 = 1 PPF and narrowest shutter angle)
 }
 
+void readEncoder(void *pvParameters) {
+
+  for (;;)
+  {
+  as5047absAngle = map(as5047.readAngle(), 0, 360, 0, 100);
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+  }
+}
+
 /////////////////////////////////////////////
 //// ---> THE LOOP (runs on core 1) <--- ////
 /////////////////////////////////////////////
 
 void loop() {
-  as5047absAngle = map(as5047.readAngle(), 0, 360, 0, 100);
 
   // Time-critical IO happens in interrupts, but UI and decision-making happens at a slower pace in the main loop
 
@@ -427,23 +520,12 @@ void loop() {
   //    timerFPS = 0;
   //  }
 
-  if (musicMode == 1) {
-    midiParser();
-    midiControlTakeover();
-    readUI();
-  }
+
 
   // update these functions @ 50 Hz
   if (timerUI >= 20) {
-    as5047MagCheck();  // check for encoder magnet proximity
-    calcFPS();
-    if (musicMode == 0) {
-      readUI();
-    }
-    updateMotor();
-    updateLed();
+    // updateMotor();
 
-    externalcontrol();
     // fixCount();
 
 
@@ -621,7 +703,7 @@ void IRAM_ATTR send_LEDC() {
 
 
 // check for encoder magnet proximity
-void as5047MagCheck() {
+void as5047MagCheck(void *pvParameters) { for(;;) {
 
   // read magnet AGC data from sensor registers
   readDataFrame = as5047.readRegister(DIAGAGC_REG);
@@ -646,6 +728,8 @@ void as5047MagCheck() {
       fixCount();  // magnet is back after loss, so fix the count using SPI
     }
     as5047MagOK_old = as5047MagOK;
+  }
+  vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 }
 
@@ -678,7 +762,7 @@ void updateShutterMap(byte shutterBlades, float shutterAngle) { //move to core 0
 
 // Read user interface buttons and pots
 // NOTE incurs 12ms blocking delay to help calm down crappy ADC between readings.
-void readUI() {
+void readUI(void *pvparemeters) { for (;;) {
 
 
 
@@ -813,6 +897,7 @@ void readUI() {
   //else{
 
   //}
+}
 }
 
 ///////////////////////////////////
@@ -1131,7 +1216,7 @@ void parseData() {
 
 
 // compute the real FPS, based on encoder rotation, but averaged to reduce error
-void calcFPS() { //moveto core 0 with related interrupts
+void calcFPS(void *pvParameters) { for(;;) { //moveto core 0 with related interrupts
   noInterrupts();
   myFPScount = FPScount;        // copy volatile FPS to nonvolatile variable so it's safe
   myFPSframe = FPSframe;        // copy volatile FPS to nonvolatile variable so it's safe
@@ -1168,10 +1253,12 @@ void calcFPS() { //moveto core 0 with related interrupts
   } else {
     updateStatusLED(0, 18, 16, 10);  // white LED at idle
   }
+  vTaskDelay(50 / portTICK_PERIOD_MS);
+}
 }
 
 // compute LED brightness (note that the ISR ultimately controls the LED state if enableShutter = 1)
-void updateLed() {
+void updateLed(void *pvParameters) { for(;;) {
   //noInterrupts();
 
   if (abs(shutBladesVal != shutBladesValOld) || abs(shutAngleVal - shutAngleValOld) >= 0.05) {
@@ -1268,8 +1355,10 @@ void updateLed() {
     send_LEDC();
   }
 }
+}
 
-void updateMotor() { //move to core0 with related interrupts
+void updateMotor(void *pvParameters) { 
+  for(;;) {
 
   // mapped/clip motPotVal because kalman filter sometimes doesn't allow us to reach min/max)
   int motPotClipped = map(motPotVal, 40, 4045, 0, 4095);
@@ -1550,6 +1639,10 @@ void updateMotor() { //move to core0 with related interrupts
     Serial.print(FPSrealAvg);
     Serial.println(", 24");
   }
+
+     vTaskDelay(20 / portTICK_PERIOD_MS);
+
+}
 }
 
 #if (enableButtons)
@@ -1589,7 +1682,9 @@ void pressed(Button2& btn) {
       }
     }
   }
+
 }
+
 
 void released(Button2& btn) {
   if (btn == buttonA) {
