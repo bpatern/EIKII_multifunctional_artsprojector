@@ -36,11 +36,15 @@
 #include <HardwareSerial.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/uart.h"
+#include "esp_intr_alloc.h"
 
 
 // Uncomment ONE of these to load preset configurations from the matching files
 #include "spectral_eiki.h"  // "Store projector-specific settings here"
 //#include "spectral_p26.h" // "Store projector-specific settings here"
+
+#include "declarations.h"  // "Function declarations for functions defined in later code"
 
 
 
@@ -175,27 +179,11 @@ int motPWMPeriod = 1000000 / motPWMFreq;  // microseconds per pulse
 void IRAM_ATTR pinChangeISR();
 void IRAM_ATTR send_LEDC();
 
+
 TaskHandle_t pcISR;
 TaskHandle_t ledCshutter;
 
-void pcISRCORE(void *pvparemeters) {
-  Serial.print("Digital shutter is executing on core ");
-  Serial.println(xPortGetCoreID());
-  for (;;)
-  {
-  if (enableShutter) {
-    attachInterrupt(EncA, pinChangeISR, CHANGE);
-    attachInterrupt(EncB, pinChangeISR, CHANGE);
 
-    if (enc.init()) {
-      Serial.println("PWM Encoder GOOD");
-    } else {
-      Serial.println("PWM Encoder ERROR");
-    }
-  }
-  vTaskDelay(10 / portTICK_PERIOD_MS);
-  }
-}
 
 int musicMode = 0;
 
@@ -212,6 +200,7 @@ void serialReadTask(void *pvparemeters) {
   vTaskDelay(10 / portTICK_PERIOD_MS);
 
 }
+
 
 
 // Start connection to the sensor.
@@ -307,84 +296,6 @@ elapsedMillis midiParseTimer;  // MS since last time we checked/updated the user
 void setup() {
 
 
-  xTaskCreatePinnedToCore(
-    pcISRCORE,
-    "pcISR",
-    10000,
-    NULL,
-    24,
-    &pcISR,
-    0);
-
-  xTaskCreatePinnedToCore(
-    serialReadTask,
-    "serialReadTask",
-    10000,
-    NULL,
-    20,
-    NULL,
-    1
-  );
-
-  xTaskCreatePinnedToCore(
-    readUI,
-    "readUI",
-    16000,
-    NULL,
-    20,
-    NULL,
-    1
-  );
-
-  xTaskCreatePinnedToCore(
-    updateMotor,
-    "updateMotor",
-    16000,
-    NULL,
-    20,
-    NULL,
-    1
-  );
-
-    xTaskCreatePinnedToCore(
-        updateLed,
-        "updateLed",
-        16000,
-        NULL,
-        26,
-    NULL,
-    0
-  );
-
-      xTaskCreatePinnedToCore(
-    as5047MagCheck,
-    "as5047MagCheck",
-    16000,
-    NULL,
-    12,
-    NULL,
-    0
-  );
-
-        xTaskCreatePinnedToCore(
-    calcFPS,
-    "calcFPS",
-    16000,
-    NULL,
-    12,
-    NULL,
-    1
-  );
-
-          xTaskCreatePinnedToCore(
-    readEncoder,
-    "readEncoder",
-    16000,
-    NULL,
-    20,
-    NULL,
-    0
-  );
 
   pinMode(ledPin, OUTPUT);  // LEDC setup will take care of this later, but force it now just in case we're using current-controlled dimming
   digitalWrite(ledPin, 1);  // turn off LED during startup to prevent film burns
@@ -422,13 +333,18 @@ void setup() {
   pixels.begin();                // INITIALIZE NeoPixel object
   updateStatusLED(0, 30, 0, 0);  // start with LED red while booting
 #endif
-  pinMode(auxReceiver, INPUT_PULLUP);
-  Serial2.begin(57600, SERIAL_8N1, auxReceiver, auxTransmitter);
+  // pinMode(auxReceiver, INPUT_PULLUP);
 
   delay(200);
   Serial.println("-----------------------------");
   Serial.println("SPECTRAL Projector Controller");
   Serial.println("-----------------------------");
+
+    uartConfig();
+
+
+
+  
 
 // Program the ESC settings if user holds down buttonA during startup
 #if (enableButtons)
@@ -495,6 +411,101 @@ void setup() {
 
   fixCount();                                     // at startup we don't know the absolute position via ABI, so ask SPI
   updateShutterMap(shutterBlades, shutterAngle);  //generate initial shutter map ... (1, 0.05 = 1 PPF and narrowest shutter angle)
+
+  Serial.print("Digital shutter is executing on core ");
+  Serial.println(xPortGetCoreID());
+  // for (;;)
+  // {
+  if (enableShutter) {
+    attachInterrupt(EncA, pinChangeISR, CHANGE);
+    attachInterrupt(EncB, pinChangeISR, CHANGE);
+
+    if (enc.init()) {
+      Serial.println("PWM Encoder GOOD");
+    } else {
+      Serial.println("PWM Encoder ERROR");
+    }
+  }
+    // xTaskCreatePinnedToCore(
+    // pcISRCORE,
+    // "pcISR",
+    // 10000,
+    // NULL,
+    // 24,
+    // &pcISR,
+    // 0);
+
+  xTaskCreatePinnedToCore(
+    serialReadTask,
+    "serialReadTask",
+    5000,
+    NULL,
+    5,
+    NULL,
+    1
+  );
+
+  xTaskCreatePinnedToCore(
+    readUI,
+    "readUI",
+    5000,
+    NULL,
+    15,
+    NULL,
+    1
+  );
+
+  xTaskCreatePinnedToCore(
+    updateMotor,
+    "updateMotor",
+    5000,
+    NULL,
+    10,
+    NULL,
+    1
+  );
+
+    xTaskCreatePinnedToCore(
+        updateLed,
+        "updateLed",
+        5000,
+        NULL,
+        12,
+    NULL,
+    1
+  );
+
+      xTaskCreatePinnedToCore(
+    as5047MagCheck,
+    "as5047MagCheck",
+    5000,
+    NULL,
+    12,
+    NULL,
+    0
+  );
+
+        xTaskCreatePinnedToCore(
+    calcFPS,
+    "calcFPS",
+    5000,
+    NULL,
+    12,
+    NULL,
+    1
+  );
+
+          xTaskCreatePinnedToCore(
+    readEncoder,
+    "readEncoder",
+    5000,
+    NULL,
+    20,
+    NULL,
+    0
+  );
+
+
 }
 
 void readEncoder(void *pvParameters) {
@@ -511,30 +522,6 @@ void readEncoder(void *pvParameters) {
 /////////////////////////////////////////////
 
 void loop() {
-
-  // Time-critical IO happens in interrupts, but UI and decision-making happens at a slower pace in the main loop
-
-  //update these functions @ 200 Hz
-  //  if (timerFPS >= 5) {
-
-  //    timerFPS = 0;
-  //  }
-
-
-
-  // update these functions @ 50 Hz
-  if (timerUI >= 20) {
-    // updateMotor();
-
-    // fixCount();
-
-
-
-
-
-
-    timerUI = 0;
-  }
 
 
 
@@ -764,6 +751,7 @@ void updateShutterMap(byte shutterBlades, float shutterAngle) { //move to core 0
 // NOTE incurs 12ms blocking delay to help calm down crappy ADC between readings.
 void readUI(void *pvparemeters) { for (;;) {
 
+  Serial.println("runUIREAD");
 
 
   //if (onboardcontrol == 1) {
@@ -897,321 +885,10 @@ void readUI(void *pvparemeters) { for (;;) {
   //else{
 
   //}
-}
-}
-
-///////////////////////////////////
-//// ---> SERIAL CONTROLS <--- ////
-///////////////////////////////////
-
-void externalcontrol() {
-
-
-
-  Serial2.print("<");
-  Serial2.print(FPSreal);
-  Serial2.print(",");
-  Serial2.print(shutAngleVal);
-  Serial2.print(",");
-  Serial2.print(ledPotVal);
-  Serial2.print(",");
-  Serial2.print(shutBladesPotVal);
-  Serial2.print(",");
-  Serial2.print(motMode);
-  Serial2.print(",");
-  Serial2.print(frame);
-  Serial2.print(",");
-  Serial2.print(motSingle);
-  Serial2.print(",");
-  Serial2.print(mCopyStatus);
-  Serial2.println(">");
-  // Serial.println("ok");
-
-  if (musicMode == 0) {
-    while (Serial2.available()) {
-      Serial.println(char(Serial2.read()));
-
-      char c = Serial2.read();
-      if (c == 'g') {
-        opticalPrinter = 1;  //i request this every time just to be sure that the proj understands!
-        motSingle = -1;
-      } else if (c == 'h') {
-        opticalPrinter = 1;
-        motSingle = 1;
-      } else if (c == 'A') {
-        capFlag = 1;
-        scanFlag = 1;
-
-        Serial2.println("A");  //mcopy confirmation flag)
-      } else if (c == 'B') {
-        capFlag = 0;
-        scanFlag = 1;
-
-        Serial2.println("B");  //mcopy confirmation flag)
-      } else if (c == 'x') {
-        frame = 0;
-      } else if (c == 'u') {
-        mCopyStatus = 0;
-      } else if (c == 'G') {
-        motSingle = -1;
-      } else if (c == 'H') {
-        motSingle = 1;
-        Serial2.println('&');
-      } else if (c == 'P') {
-        motExtSwitch = 1;
-      } else if (c == 'W') {
-        motExtSwitch = -1;
-      } else if (c == '*') {
-        motExtSwitch = 0;
-        motSingle = 0;
-      } else if (c == '@') {
-        musicMode = 1;  //midi
-        Serial.println("music mode on");
-      } else if (c == 'z') {
-        static String ledValRecvdStr = Serial.readStringUntil('z');
-       
-        ledBright = ledValRecvdStr.toInt();
-
-        send_LEDC();
-      }
-    }
-  }
-
-  if (Serial.available()) {
-    char c = Serial.read();
-    if (c == '1') {
-      if (opticalPrinter == 0) {
-        motSingle = 1;
-      } else {
-        motSingle = -1;
-      }
-
-    } else if (c == '2') {
-      if (opticalPrinter == 0) {
-        motSingle = -1;
-      } else {
-        motSingle = 1;
-      }
-
-    } else if (c == '-') {
-      frame = 0;
-      Serial.println("Projector Frame Count Reset!");
-    } else if (c == '5') {
-      motSingle = 5;
-      Serial.println("Shutter OPEN!");
-    } else if (c == '4') {
-      motSingle = 4;
-    } else if (c == 'f') {
-      motExtSwitch = 1;
-    } else if (c == 'p') {
-      motExtSwitch = 0;
-    } else if (c == 'r') {
-      motExtSwitch = -1;
-    } else if (c == '8') {
-
-    } else if (c == '0') {
-      Serial.println("Camera frame count reset!");
-    } else if (c == '9') {
-      Serial.print("Currently, the projector is on frame ");
-
-      Serial.println(frame);
-    } else if (c == ';') {
-      opticalPrinter = 1;
-      Serial.println("optical printer mode enabled! you must manually turn off LED if need be.");
-    } else if (c == '`') {
-      motSingle = 0;
-      Serial.println("Shutter closed.");
-    } else if (c == '@') {
-      musicMode = 1;  //midi
-      Serial.println("music mode on");
-    }
-  }
-
-  // Serial.print("SPEED ");
-  // Serial.println(CC1ProjSpeed);
-  // Serial.print("BLADE ");
-  // Serial.println(CC2ProjBlades);
-  // Serial.print("LED ");
-  // Serial.println(CC3ProjBright);
-  // Serial.print("sf ");
-  // Serial.println(MSFStatus);
-  // Serial.print("move ");
-  // Serial.println(moveStatus);
-
-  
-}
-
-//  if (serialtimerUI >= 400) {
-
-void midiControlTakeover() {
-
-  while (Serial2.available()) {
-    char c = Serial2.read();
-    if (c == 'H') {
-      motSingle = 1;
-      Serial.println("RECVD");
-      Serial2.println('&');
-    } else if (c == 'G') {
-      motSingle = -1;
-      Serial.println("RECVD");
-      Serial2.println('&');
-    } else if (c == '@') {
-      musicMode = 1;  //midi
-      Serial.println("music mode on");
-    } else if (c == 'L') {
-      motExtSwitch = 1;
-      motMode = 1;
-      //Serial.println("RECVD");
-      Serial2.println('$');
-
-    } else if (c == '*') {
-      updateShutterMap(0, 0.0);  // force open shutter for single framing
-
-      motExtSwitch = 0;
-      motMode = 0;
-      receivedRecvdConfirm = 1;
-      Serial2.println('$');
-      updateShutterMap(shutBladesVal, shutAngleVal);
-
-    } else if (c == 'E') {
-      motExtSwitch = -1;
-      motMode = -1;
-      Serial.println("RECVD");
-      Serial2.println('$');
-
-
-    } else if (c == 'W') {
-      receivedRecvdConfirm2 = 1;
-    }
-  }
-
-  if (receivedRecvdConfirm == 1) {
-    if (receivedRecvdConfirm2 == 0) {
-      Serial2.println('$');
-    } else if (receivedRecvdConfirm2 == 1) {
-      receivedRecvdConfirm2 = 0;
-      receivedRecvdConfirm = 0;
-      // Serial.println("ok");
-    }
-  }
+vTaskDelay(100 / portTICK_PERIOD_MS);}
 }
 
 
-
-
-
-void midiParser() {
-  if (midiParseTimer > 50) {
-    recvWithStartEndMarkers();
-    if (newData == true) {
-      strcpy(tempChars, receivedChars);
-      sscanf(tempChars, "%d,%d,%d", &CC1ProjSpeed, &CC2ProjBlades, &CC3ProjBright);
-      //    showParsedData();
-      newData = false;
-      midiParseTimer = 0;
-    }
-  }
-}
-
-void recvWithStartEndMarkers() {
-  static boolean recvInProgress = false;
-  static byte ndx = 0;
-  char startMarker = '<';
-  char endMarker = '>';
-  char rc;
-
-  while (Serial2.available() > 0 && newData == false) {
-    rc = Serial2.read();
-
-    if (recvInProgress == true) {
-      if (rc != endMarker) {
-        receivedChars[ndx] = rc;
-        ndx++;
-        if (ndx >= numChars) {
-          ndx = numChars - 1;
-        }
-      } else {
-        receivedChars[ndx] = '\0';  // terminate the string
-        recvInProgress = false;
-        ndx = 0;
-        newData = true;
-      }
-    }
-
-    else if (rc == startMarker) {
-      recvInProgress = true;
-    }
-  }
-}
-
-void parseData() {
-
-
-  // char * strtokIndx; // this is used by strtok() as an index
-  // char * pointer;
-
-  // strtokIndx = strtok_r(tempChars, ",", &pointer);      // get the first part - the string
-  // CC1ProjSpeed = atoi(strtokIndx);     // convert this part to an integer
-
-  // strtokIndx = strtok_r(NULL, ",", &pointer);      // get the first part - the string
-  // CC2ProjBlades = atoi(strtokIndx);     // convert this part to an integer
-
-  // strtokIndx = strtok_r(NULL, ",", &pointer);      // get the first part - the string
-  // CC3ProjBright = atoi(strtokIndx);     // convert this part to an integer
-
-  // strtokIndx = strtok_r(NULL, ",", &pointer);      // get the first part - the string
-  // moveStatus = atoi(strtokIndx);     // convert this part to an integer
-
-
-  // strtokIndx = strtok_r(NULL, ",", &pointer);      // get the first part - the string
-  // MSFStatus = atoi(strtokIndx);     // convert this part to an integer
-
-
-
-  // for(int i = 0; i < 25; i++)
-  // {
-  //   Serial.println(receivedChars[i]);
-  // }
-
-
-  //   char * str;
-  // char * p = tempChars; //example "hello,123,3.14"
-  // byte counter = 0;
-  // // delay(20);
-  // while ((str = strtok_r(p, " x, ", &p)) != NULL)  // Don't use \n here it fails
-  //   {
-  //    switch(counter){
-  //     case 0:
-  //     CC1ProjSpeed = atoi(str);
-
-  //     break;
-
-  //     case 1:
-  //     CC2ProjBlades = atoi(str);
-
-  //     break;
-
-  //     case 2:
-  //     CC3ProjBright = atoi(str);
-
-  //     break;
-
-  //     case 3:
-  //     moveStatus = atoi(str);
-
-  //     break;
-
-
-  //     case 4:
-  //     MSFStatus = atoi(str);
-
-  //     break;
-
-  //    }
-
-  //    counter++;
-  //   }
-}
 
 
 
@@ -1260,6 +937,8 @@ void calcFPS(void *pvParameters) { for(;;) { //moveto core 0 with related interr
 // compute LED brightness (note that the ISR ultimately controls the LED state if enableShutter = 1)
 void updateLed(void *pvParameters) { for(;;) {
   //noInterrupts();
+    Serial.println("runLEDREAD");
+
 
   if (abs(shutBladesVal != shutBladesValOld) || abs(shutAngleVal - shutAngleValOld) >= 0.05) {
     if (enableShutter == 1) {
@@ -1354,11 +1033,13 @@ void updateLed(void *pvParameters) { for(;;) {
   if (countPeriod > 50000 || shutAngleVal == 1.0 || !enableShutter || musicMode == 1) {
     send_LEDC();
   }
-}
+vTaskDelay(50 / portTICK_PERIOD_MS);}
 }
 
 void updateMotor(void *pvParameters) { 
   for(;;) {
+      Serial.println("runMotUpdate");
+
 
   // mapped/clip motPotVal because kalman filter sometimes doesn't allow us to reach min/max)
   int motPotClipped = map(motPotVal, 40, 4045, 0, 4095);
@@ -1916,3 +1597,7 @@ float fscale(float originalMin, float originalMax, float newBegin, float newEnd,
 
   return rangedValue;
 }
+
+
+
+#include "commander.h"
