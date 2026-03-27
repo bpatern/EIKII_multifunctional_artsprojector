@@ -1,0 +1,1 @@
+since the arduino ide has more forgiveness for the placement of functions throughout the program, this program will need restructuring to comply with what a normal C++ compiler wants. I'd prefer to leave things mostly as is as I branch out the bulk of this functionality into the toolkit library, since some behaviors are tighter in my beaulieu camera motor code.

@@ -1,0 +1,13 @@
+void pressed(Button2& btn);
+void released(Button2& btn);
+void ESCprogram();
+void fixCount();
+void midiParser();
+void midiControlTakeover();
+void readUI();
+void as5047MagCheck();
+void calcFPS();
+void updateMotor();
+void updateLed();
+void externalcontrol();
+void ESC_send_ACK();
