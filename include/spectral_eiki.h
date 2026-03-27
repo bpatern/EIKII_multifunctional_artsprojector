@@ -19,24 +19,11 @@
 int safeMode = 0;            // If enableSafeSwitch == 0 then use this variable: 0 = normal, 1 = ledBright is limited by speed and shutter angle to prevent film burns
 #define enableButtons 1      // 1 = use buttons A and B (for single frame FORWARD / BACK)
 #define enableStatusLed 1    // 1 = use NeoPixel status LED(s) for user feedback
+int statusLedColor = 1; //write status into a function
+#define use_HobbywingQuicRun 1
 
-// INPUT PINS //
-// UI
-#define onboardcontrolPin n/a
-#define motPotPin 33         // analog input for motor speed pot
-#define motSlewPotPin n/a     // analog input for motor slew rate pot
-#define ledPotPin 35         // analog input for LED dimming pot
-#define ledSlewPotPin n/a     // analog input for LED dimming slew rate pot
-#define shutBladesPotPin 39  // analog input for # of shutter blades pot
-#define shutAnglePotPin 36   // analog input for shutter angle pot
-#define motDirFwdSwitch 14   // digital input for motor direction switch (forward)
-#define motDirBckSwitch 12   // digital input for motor direction switch (backward)
-#define buttonApin 26        // digital input for button
-#define buttonBpin 25        // digital input for button
-#define safeSwitch 13        // switch to enable "safe mode" where lamp brightness is automatically dimmed at slow speeds
 
-#define auxReceiver 32
-#define auxTransmitter 27
+#define useAS5047 1
 
 const int countsPerFrame = 100;   // how many encoder transitions per frame
 const int encoderDir = 0;   // Which magnet spin direction matches forward movement? 0 = clockwise, 1 = counter-clockwise

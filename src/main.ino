@@ -43,251 +43,21 @@
 // Uncomment ONE of these to load preset configurations from the matching files
 #include "spectral_eiki.h"  // "Store projector-specific settings here"
 //#include "spectral_p26.h" // "Store projector-specific settings here"
+#include "variables.h"
 
 #include "declarations.h"  // "Function declarations for functions defined in later code"
 
+#include "pindef.h"
 
 
-// Encoder
-#define EncI 17   // encoder pulse Index (AS5047 sensor)
-#define EncA 16   // encoder pulse A (AS5047 sensor)
-#define EncB 4    // encoder pulse B (AS5047 sensor)
-#define EncCSN 5  // encoder SPI CSN Pin (AS5047 sensor) - Library also reserves GPIO 18, 19, 23 for SPI
 
-Encoder enc(EncA, EncB, FULLQUAD, 0);
+#include "config_functions.h"
 
-
-// OUTPUT PINS //
-#define escPin 22         // PWM output for ESC
-#define escProgramPin 21  // serial output to program ESC (needs 10k resistor to 3.3v)
-#define ledPin 2          // PWM output for LED (On 38pin HiLetGo ESP32 board, GPIO 2 is the built-in LED)
-#define NeoPixelPin 15    // output pin for NeoPixel status LED(s)
-
-// Simple Kalman Filter Library Setup
-// see tuning advice here: https://www.mathworks.com/help/fusion/ug/tuning-kalman-filter-to-improve-state-estimation.html
-// and this playlist: https://www.youtube.com/watch?v=CaCcOwJPytQ&list=PLX2gX-ftPVXU3oUFNATxGXY90AULiqnWT
-float kalmanMEA = 2;    // "measurement noise estimate" (larger = we assmume there is more noise/jitter in input)
-float kalmanQ = 0.010;  // "Process Noise" AKA "gain" (smaller = more smoothing but more latency)
-
-SimpleKalmanFilter motPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-SimpleKalmanFilter ledPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-
-#if (enableSlewPots)
-SimpleKalmanFilter motSlewPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-SimpleKalmanFilter ledSlewPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-#endif
-
-#if (enableShutterPots)
-SimpleKalmanFilter shutBladesPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-SimpleKalmanFilter shutAnglePotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-#endif
-
-// For the FPSreal averaging
-const int FPSnumReadings = 3;       // how many FPS readings to average together
-float FPSAvgArray[FPSnumReadings];  // the FPS readings array
-int FPSAvgReadIndex = 0;            // the index of the current reading
-float FPSAvgTotal = 0;              // total of all readings
-
-
-#if (enableButtons)
-// Bounce2 Library setup for buttons
-Button2 buttonA;
-Button2 buttonB;
-
-bool buttonAstate = 0;
-bool buttonBstate = 0;
-#endif
-
-int motExtSwitch = 0;
-volatile int motModeMidi;
-
-int ledSlewVal = 0;
-int ledSlewValOld;
-int ledSlewMin = 0;      // the minumum slew value when knob is turned down (msec).
-int ledSlewMax = 10000;  // the max slew value when knob is turned up (msec).
-
-int motSlewVal = 0;
-int motSlewValOld;
-int motSlewMin = 0;      // the minumum slew value when knob is turned down (msec).
-int motSlewMax = 10000;  // the max slew value when knob is turned up (msec).
-
-int shutBladesPotVal;
-int shutBladesVal;
-int shutBladesValOld;
-int shutAnglePotVal;
-float shutAngleVal;
-float shutAngleValOld;
-
-volatile int as5047absAngle;
+#include "encoder.h"
 
 
 
 
-
-// Ramp library setup
-rampInt motAvg;  // ramp object for motor speed slewing
-rampInt ledAvg;  // ramp object for LED brightness slewing
-
-
-#if (enableStatusLed)
-  // NeoPixel library setup
-#define NUMPIXELS 1  // How many NeoPixels are attached?
-
-Adafruit_NeoPixel pixels(NUMPIXELS, NeoPixelPin, NEO_RGB + NEO_KHZ800);
-// last argument should match your LED type. Add together as needed:
-//   NEO_KHZ800  800 KHz bitstream (most NeoPixel products w/WS2812 LEDs)
-//   NEO_KHZ400  400 KHz (classic 'v1' (not v2) FLORA pixels, WS2811 drivers)
-//   NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
-//   NEO_RGB     Pixels are wired for RGB bitstream (5mm LEDS, v1 FLORA pixels, not v2)
-//   NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
-#endif
-
-// UI VARS (could also be updated by remote control in future. Put these in a struct for easier radiolib management?)
-int motPotVal = 0;  // current value of Motor pot (not necessarily the current speed since we might be ramping toward this value)
-int motPotFPS = 1;  // current requested FPS based on motPotVal and scaling
-int motPotFPSOld = 0;
-int ledPotVal = 0;  // current value of LED pot (not necessarily the current LED brightness since we might be fading or strobing)
-int ledPotValOld;
-
-
-
-// LED VARS //
-int LedDimMode = 1;               // 0 = current-controlled dimming (NOT YET IMPLEMENTED!), 1 = PWM dimming
-int LedInvert = 1;                // set to 1 to invert LED output signal so it's active-low (required by H6cc driver board)
-int ledBright = 0;                // current brightness of LED (range depends on Res below. If we're ramping then this will differ from pot value)
-float safeSpeedMult = 0.4;        // multiplier to use in "safe mode" to lower lamp brightness at low FPS
-const int ledBrightRes = 12;      // bits of resolution for LED dimming
-const int ledBrightFreq = 18000;  // PWM frequency (500Hz is published max for H6cc LED driver, 770Hz is closer to shutter segment period, 1000 seems to work best)
-const int ledChannel = 0;         // ESP32 LEDC channel number. Pairs share settings (0/1, 2/3, 4/5...) so skip one to insure your settings work!
-
-// MOTOR VARS We are using ESP32 LEDC to drive the RC motor ESC via 1000-2000uS PWM @50Hz (standard servo format)
-int motMode = 0;               // motor run mode (-1, 0, 1)
-int motModePrev = 0;           // previous motor run mode (-1, 0, 1)
-int motSingle = 0;             // indicates that we're traveling in single frame mode
-int motSinglePrev = 0;         // were we in single frame mode during the last loop?
-int motSingleMinTime = 800;    // the minimum movement time (MS) for each single frame move
-volatile int motModeReal = 0;  // Current running direction detected by encoder (-1, 1)
-float motSpeedUS = 1500;       // speed of motor (in pulsewidth uS from 1000-2000)
-const int motPWMRes = 16;      // bits of resolution for extra control (standard servo lib uses 10bit)
-
-const int motPWMChannel = 2;              // ESP32 LEDC channel number. Pairs share settings (0/1, 2/3, 4/5...) so skip one to insure your settings work!
-const int motPWMFreq = 50;                // PWM frequency (50Hz is standard for RC servo / ESC)
-int motPWMPeriod = 1000000 / motPWMFreq;  // microseconds per pulse
-
-// prototypes for ISR functions that will be defined in later code
-// (prototype must be declared _before_ we attach interrupt because ESP32 requires "IRAM_ATTR" flag which breaks typical Arduino behavior)
-void IRAM_ATTR pinChangeISR();
-void IRAM_ATTR send_LEDC();
-
-
-TaskHandle_t pcISR;
-TaskHandle_t ledCshutter;
-
-
-
-int musicMode = 0;
-
-
-void serialReadTask(void *pvparemeters) {
-  for (;;)
-  {
-  if (musicMode == 1) {
-    midiParser();
-    midiControlTakeover();
-  }
-    externalcontrol();
-  }
-  vTaskDelay(10 / portTICK_PERIOD_MS);
-
-}
-
-
-
-// Start connection to the sensor.
-AS5X47 as5047(EncCSN);
-// will be used to read data from the magnetic encoder
-ReadDataFrame readDataFrame;
-volatile bool shutterMap[countsPerFrame];  // array holding values for lamp state at each position of digital shutter
-volatile bool shutterStateOld = 0;         // stores the on/off state of the shutter from previous encoder position
-static byte abOld;                         // Initialize state
-volatile int count;                        // current rotary count
-int countOld;                              // old rotary count
-volatile int EncIndexCount;                // How many times have the A or B pulses transitioned while index pulse has been high
-int as5047MagOK = 0;                       // status of magnet near AS5047 sensor
-int as5047MagOK_old = 0;
-
-// Machine Status Variables
-volatile long frame = 0;      // current frame number (frame counter)
-long frameOld = 0;            // old frame number for encoder
-long frameOldsingle = 0;      // old frame number for encoder
-volatile float FPScount = 0;  // measured FPS, sourced from encoder counts (100 updates per frame)
-volatile float FPSframe = 0;  // measured FPS, sourced from frame counts
-float FPSreal = 0;            // non-volatile FPS, sourced from encoder counts at slow speeds and frame counts at high speeds
-float FPSrealAvg = 0;         // non-volatile measured FPS after averaging for jitter reduction
-float FPStarget = 0;          // requested FPS
-
-
-//external communication variables and settings//
-int sfRequest;
-int runRequest;
-
-int frameCountResetRequest;
-int opticalPrinter = 0;
-int opAlignment = 0;
-int capFlag = 0;
-int mCopyStatus = 0;
-int pullDownPos = 20;
-int scanFlag = 0;
-
-//ext midi variables -- may use CC2 for optical printer
-int CC1ProjSpeed;
-int CC3ProjBright;
-int CC2ProjBlades;
-int moveStatus;
-int MSFStatus;
-int motSingleRun;
-int recSpecs;
-
-int receivedRecvdConfirm2;
-int receivedRecvdConfirm;
-
-
-
-
-//calcFPS variables. esp memory was dumping them before...
-boolean newData = false;
-const byte numChars = 32;
-char receivedChars[numChars];
-char tempChars[numChars];
-
-volatile float myFPScount = FPScount;      // copy volatile FPS to nonvolatile variable so it's safe
-volatile float myFPSframe = FPSframe;      // copy volatile FPS to nonvolatile variable so it's safe
-volatile int myMotModeReal = motModeReal;  // copy volatile FPS to nonvolatile variable so it's safe
-
-// Settings for HobbyWing Quicrun Fusion SE motor
-#define ESC_WRITE_BIT_TIME_WIDTH 2500  // uSec length of each pulse ("2500" = 400 baud)
-char ESC_settings[] = {
-  0,                // RPM Throttle Matching enabled
-  2,                // 3S LiPo cells
-  0,                // "Low" battery cutoff threshold (Low / Med / High)
-  1,                // 105C temp cutoff
-  0,                // CCW rotation
-  0,                // 6V BEC
-  0,                // Drag brake force disabled
-  3,                // Drag brake rate 5
-  3,                // Max reverse force 100%
-  5, 0, 4, 2, 0, 0  // extra bytes sniffed with logic analyzer, don't know what they're for
-};
-
-// timers
-elapsedMicros framePeriod;    // US since last frame transition (used for FPS calc)
-elapsedMicros countPeriod;    // US since last encoder count transition (used for FPS calc)
-elapsedMillis timerUI;        // MS since last time we checked/updated the user interface
-elapsedMillis serialTimerUI;  //seperate operator for serial comm between aux display, midi, and self
-elapsedMillis motSingleRunTimer;
-elapsedMillis motModeMidiTimer;
-elapsedMillis midiParseTimer;  // MS since last time we checked/updated the user interface
-//elapsedMillis timerSingle;    // MS since single frame move began
 
 /////////////////////////
 //// ---> SETUP <--- ////
@@ -295,227 +65,38 @@ elapsedMillis midiParseTimer;  // MS since last time we checked/updated the user
 
 void setup() {
 
+  lightSetup();
 
+  interfaceConfig();
 
-  pinMode(ledPin, OUTPUT);  // LEDC setup will take care of this later, but force it now just in case we're using current-controlled dimming
-  digitalWrite(ledPin, 1);  // turn off LED during startup to prevent film burns
-
-  Serial.begin(57600);  // Setup Serial Monitor
-
-
-  // certain received command should force led on, but should maybe check for a physical switch of some sort?
-
-  if (enableMotSwitch) {
-    pinMode(motDirFwdSwitch, INPUT_PULLUP);
-    pinMode(motDirBckSwitch, INPUT_PULLUP);
+  if (useAS5047) {
+    as5047Config();
   }
-#if (enableButtons)
-  // Attach buttons (Bounce2 library handles pinmode settings for us)
-  buttonA.begin(buttonApin, INPUT_PULLUP, true);
-  buttonA.setDebounceTime(20);
-  buttonA.setPressedHandler(pressed);
-  buttonA.setReleasedHandler(released);
-
-  buttonB.begin(buttonBpin, INPUT_PULLUP, true);
-  buttonB.setDebounceTime(20);
-  buttonB.setPressedHandler(pressed);
-  buttonB.setReleasedHandler(released);
-#endif
-
-  if (enableSafeSwitch) {
-    pinMode(safeSwitch, INPUT_PULLUP);
-  }
-
-
-  abOld = count = countOld = 0;
-
-#if (enableStatusLed)
-  pixels.begin();                // INITIALIZE NeoPixel object
-  updateStatusLED(0, 30, 0, 0);  // start with LED red while booting
-#endif
-  // pinMode(auxReceiver, INPUT_PULLUP);
-
-  delay(200);
-  Serial.println("-----------------------------");
-  Serial.println("SPECTRAL Projector Controller");
-  Serial.println("-----------------------------");
-
-    uartConfig();
-
-
 
   
+    uartConfig();
 
-// Program the ESC settings if user holds down buttonA during startup
-#if (enableButtons)
-  if (digitalRead(buttonApin) == 0) {
-    ESCprogram();
-    while (1)
-      ;  // don't continue setup since the ESC needs to be rebooted before we can continue
-  }
-#endif
+    mathConfig();
 
 
-
-  // Set rotation direction (see AS5047 datasheet page 17)
-  Settings1 settings1;
-  settings1.values.dir = encoderDir;
-  as5047.writeSettings1(settings1);
-
-  // Set ABI output resolution (see AS5047 datasheet page 19)
-  // (pulses per rev: 5 = 50 pulses, 6 = 25 pulses, 7 = 8 pulses)
-  Settings2 settings2;
-  settings2.values.abires = 6;  // 25 pulses per rev = 100 transitions. This is what we want.
-  as5047.writeSettings2(settings2);
-
-  // Disable ABI output when magnet error (low or high) exists (see AS5047 datasheet page 24)
-  Zposl zposl;
-  Zposm zposm;
-  zposl.values.compLerrorEn = 1;
-  zposl.values.compHerrorEn = 1;
-  as5047.writeZeroPosition(zposm, zposl);
-
-  // This command prints the debug information to the Serial port.
-  // All registers of the encoder will be read and printed.
-  //as5047.printDebugString();
-
-  // LED PWM setup (BYPASSED because we set up the LEDC on each shutter blade now, and doing it here causes LED to come on during startup)
-  // if (LedDimMode) {
-  //   ledcSetup(ledChannel, ledBrightFreq, ledBrightRes);   // configure LED PWM function using LEDC channel
-  //   ledcAttachPin(ledPin, ledChannel); // attach the LEDC channel to the GPIO to be controlled
-  //   ledcWrite(ledChannel, 1); // turn it off
-  // }
-
-
-
-
-
-  // Motor PWM setup
-  ledcSetup(motPWMChannel, motPWMFreq, motPWMRes);  // configure motor PWM function using LEDC channel
-  ledcAttachPin(escPin, motPWMChannel);             // attach the LEDC channel to the GPIO to be controlled
-
-  //it's important to send the ESC a "0" speed signal (1500us) whenever the motor is stopped. Otherwise the ESC goes into "failsafe" mode thinking that our RC car has lost contact with the TX!
-  ledcWrite(motPWMChannel, (1 << motPWMRes) * 1500 / motPWMPeriod);  // duty = # of values at current res * US / pulse period
-  Serial.print("Sending neutral signal to ESC...");
-  delay(4000);
-  Serial.println("Done");
-
-#if (enableStatusLed)
-  updateStatusLED(0, 18, 16, 10);  // white LED at idle
-#endif
-
-  // initialize all FPS readings to 0:
-  for (int thisReading = 0; thisReading < FPSnumReadings; thisReading++) {
-    FPSAvgArray[thisReading] = 0;
-  }
-
-  fixCount();                                     // at startup we don't know the absolute position via ABI, so ask SPI
-  updateShutterMap(shutterBlades, shutterAngle);  //generate initial shutter map ... (1, 0.05 = 1 PPF and narrowest shutter angle)
-
-  Serial.print("Digital shutter is executing on core ");
-  Serial.println(xPortGetCoreID());
-  // for (;;)
-  // {
-  if (enableShutter) {
-    attachInterrupt(EncA, pinChangeISR, CHANGE);
-    attachInterrupt(EncB, pinChangeISR, CHANGE);
-
-    if (enc.init()) {
-      Serial.println("PWM Encoder GOOD");
-    } else {
-      Serial.println("PWM Encoder ERROR");
+    if (enableShutter != 0) {
+      if (enableShutter == 1) {
+        digitalShutterConfig();
+      } if (enableShutter == 2) {
+        mechanicalShutterConfig();
+      }
     }
+
+  if (use_HobbywingQuicRun) {
+  motorConfig();
   }
-    // xTaskCreatePinnedToCore(
-    // pcISRCORE,
-    // "pcISR",
-    // 10000,
-    // NULL,
-    // 24,
-    // &pcISR,
-    // 0);
 
-  xTaskCreatePinnedToCore(
-    serialReadTask,
-    "serialReadTask",
-    5000,
-    NULL,
-    5,
-    NULL,
-    1
-  );
-
-  xTaskCreatePinnedToCore(
-    readUI,
-    "readUI",
-    5000,
-    NULL,
-    15,
-    NULL,
-    1
-  );
-
-  xTaskCreatePinnedToCore(
-    updateMotor,
-    "updateMotor",
-    5000,
-    NULL,
-    10,
-    NULL,
-    1
-  );
-
-    xTaskCreatePinnedToCore(
-        updateLed,
-        "updateLed",
-        5000,
-        NULL,
-        12,
-    NULL,
-    1
-  );
-
-      xTaskCreatePinnedToCore(
-    as5047MagCheck,
-    "as5047MagCheck",
-    5000,
-    NULL,
-    12,
-    NULL,
-    0
-  );
-
-        xTaskCreatePinnedToCore(
-    calcFPS,
-    "calcFPS",
-    5000,
-    NULL,
-    12,
-    NULL,
-    1
-  );
-
-          xTaskCreatePinnedToCore(
-    readEncoder,
-    "readEncoder",
-    5000,
-    NULL,
-    20,
-    NULL,
-    0
-  );
-
+  createTasks();
+  
 
 }
 
-void readEncoder(void *pvParameters) {
 
-  for (;;)
-  {
-  as5047absAngle = map(as5047.readAngle(), 0, 360, 0, 100);
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-  }
-}
 
 /////////////////////////////////////////////
 //// ---> THE LOOP (runs on core 1) <--- ////
