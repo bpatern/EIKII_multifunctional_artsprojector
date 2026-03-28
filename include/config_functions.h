@@ -72,6 +72,8 @@ void createTasks() {
     {
         q_shutterBlade = xQueueCreate(20, sizeof(int*));
         q_shutterAngle = xQueueCreate(20, sizeof(float*)); //shutter angle is never a float in the program which is why i changed it
+        q_ledBright = xQueueCreate(20, sizeof(int*));
+        q_shutterMap = xRingbufferCreate(100, RINGBUF_TYPE_NOSPLIT);
             xTaskCreatePinnedToCore(
                 updateShutterMap,
                 "updateShutter",
@@ -147,7 +149,7 @@ void createTasks() {
   );
 
 
-ledBright = xQueueCreate(4, sizeof(int*));
+
           xTaskCreatePinnedToCore(
     readEncoder,
     "readEncoder",

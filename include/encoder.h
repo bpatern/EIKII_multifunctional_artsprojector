@@ -9,9 +9,6 @@
 // }
 
 
-
-}
-
 void readEncoder(void *pvParameters) {
 
   for (;;)
@@ -30,8 +27,10 @@ void fixCount() {
 void updateShutterMap(void * parameter) { //move to core 0 with related interrupts
  int sB = 0;
  float sA = 0;
+ volatile bool shutterMap[countsPerFrame];  // array to hold the on/off state of the shutter for each count position
 
     for(;;){
+
     xQueueReceive(q_shutterBlade, &sB, portMAX_DELAY);
     xQueueReceive(q_shutterAngle, &sA, portMAX_DELAY);
   //Serial.print("Update ShutterMap");
@@ -45,10 +44,16 @@ void updateShutterMap(void * parameter) { //move to core 0 with related interrup
     int countOffset = myBlade * (countsPerFrame / sB);
     for (int myCount = 0; myCount < countsPerFrame / sB; myCount++) {
       if (myCount < countsPerFrame / sB * (1.0 - sA)) {
-        shutterMap[myCount + countOffset] = 0;
+        // shutterMap[myCount + countOffset] = 0;
+        xRingbufferSend(q_shutterMap, &"0", sizeof(shutterMap), portMAX_DELAY);  // send updated shutter map to shutter task via queue
+
       } else {
-        shutterMap[myCount + countOffset] = 1;
+        // shutterMap[myCount + countOffset] = 1;
+        xRingbufferSend(q_shutterMap, &"1", sizeof(shutterMap), portMAX_DELAY);  // send updated shutter map to shutter task via queue
+
+
       }
+
     }
   }
 }

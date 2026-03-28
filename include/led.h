@@ -4,6 +4,13 @@ void updateLed(void *pvParameters) {
     int ledSlewVal = 0;
     int ledPotVal = 0;
     int ledBright = 0;
+    int ledSlewValOld;
+    int motSlewValOld;
+    int shutBladesValOld;
+    float shutAngleValOld;
+
+
+
 
 
     for(;;) {
@@ -109,4 +116,58 @@ void updateLed(void *pvParameters) {
 //     send_LEDC();
 //   }
 vTaskDelay(50 / portTICK_PERIOD_MS);}
+}
+
+
+
+void IRAM_ATTR send_LEDC() {
+  int ledBright;
+  xQueueReceive(q_ledBright, &ledBright, portMAX_DELAY);  // receive LED brightness value from LED task via queue
+ uint shutterMap;  // copy shutter state to local variable in case it changes during the ISR execution (not possible?)
+    xRingbufferReceive(q_shutterMap, &shutterMap, portMAX_DELAY);  // receive shutter map from shutter task via queue
+  if (LedDimMode) {  // PWM mode
+    if (shutterMap == 1 || enableShutter == 0) {
+      // LED ON for this step of shutter OR shutter is disabled OR single framing, so LED is always on
+      ledcSetup(ledChannel, ledBrightFreq, ledBrightRes);  // configure LED PWM function using LEDC channel
+      ledcAttachPin(ledPin, ledChannel);                   // attach the LEDC channel to the GPIO to be controlled
+    //   if (LedInvert) {
+    //     ledcWrite(ledChannel, (1 << ledBrightRes) - ledBright);  // set lamp to desired brightness (inverted)
+    //   } else {
+    //     ledcWrite(ledChannel, ledBright);  // set lamp to desired brightness
+    //   }
+        ledcWrite(ledChannel, ledBright);  // set lamp to desired brightness
+
+
+
+    } else if (shutterMap == 0 && enableShutter == 1) {
+      // LED OFF for this segment of shutter
+
+    //   if (LedInvert) {
+    //     // ledcDetachPin(ledPin);    // detach the LEDC channel to the GPIO to be controlled
+    //     digitalWrite(ledPin, 1);  // send pin high to turn off LED
+    //   } else {
+        digitalWrite(ledChannel, 0);  // send pin high to turn off LED
+        ledcDetachPin(ledPin);  // detach the LEDC channel to the GPIO to be controlled
+
+        //i need to figure out why detachment is necessary
+    //   }
+    //   ledcDetachPin(ledPin);
+    }
+
+//   } else {
+//     if (LedInvert) {
+//       if (enableShutter) {
+//         digitalWrite(ledPin, !(shutterState));  // active low, using shutter
+//         ledcDetachPin(ledPin);
+//       } else {
+//         digitalWrite(ledPin, 0);  // active low, no shutter
+//       }
+//     } else {
+//       if (enableShutter) {
+//         digitalWrite(ledPin, shutterState);  // active high, using shutter
+//       } else {
+//         digitalWrite(ledPin, 1);  // active high, no shutter
+//       }
+//     }
+  }
 }
