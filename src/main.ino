@@ -121,36 +121,36 @@ void loop() {
 
 
   // These happen once per encoder count (only useful for debugging at slow speeds)
-  if (countOld != count) {
-    if (debugEncoder) {
-      Serial.print("Frame: ");
-      Serial.print(frame);
-      Serial.print(", Frame Old: ");
-      Serial.print(frameOldsingle);
-      Serial.print(", Count: ");
-      Serial.print(count);
-      Serial.print(", Single: ");
-      Serial.print(as5047.readAngle());
-      Serial.print(", Lamp: ");
-      Serial.print(shutterMap[count]);
-      Serial.print(", Brightness: ");
-      Serial.println(ledBright);
-    }
-    countOld = count;
-  }
+  // if (countOld != count) {
+  //   if (debugEncoder) {
+  //     Serial.print("Frame: ");
+  //     Serial.print(frame);
+  //     Serial.print(", Frame Old: ");
+  //     Serial.print(frameOldsingle);
+  //     Serial.print(", Count: ");
+  //     Serial.print(count);
+  //     Serial.print(", Single: ");
+  //     Serial.print(as5047.readAngle());
+  //     Serial.print(", Lamp: ");
+  //     Serial.print(shutterMap[count]);
+  //     Serial.print(", Brightness: ");
+  //     Serial.println(ledBright);
+  //   }
+  //   countOld = count;
+  // }
 
-  // These happen once per frame (only useful for debugging)
-  if (frameOld != frame) {
-    if (debugFrames) {
-      Serial.print("FRAME: ");
-      Serial.print(frame);
-      Serial.print(", FPSreal:");
-      Serial.print(FPSreal);
-      Serial.print(", FPS avg:");
-      Serial.println(FPSrealAvg);
-    }
-    frameOld = frame;
-  }
+  // // These happen once per frame (only useful for debugging)
+  // if (frameOld != frame) {
+  //   if (debugFrames) {
+  //     Serial.print("FRAME: ");
+  //     Serial.print(frame);
+  //     Serial.print(", FPSreal:");
+  //     Serial.print(FPSreal);
+  //     Serial.print(", FPS avg:");
+  //     Serial.println(FPSrealAvg);
+  //   }
+  //   frameOld = frame;
+  // }
 }
 
 /////////////////////////////
@@ -163,154 +163,7 @@ void loop() {
 //updated rotary encoder reading to use esp32 hardware sections that look for pulse counts. this way pulses are noticed asynchronously rather than at the time of the interrupt.... the code within the interrupt wasn't really fast enough to both register a change and act on it. now rather than stopping when it notices something it acts more like a bear grabbing a fish from a stream for better or worse!
 //if one were to use a PICO instead, use the PIO to achieve the same. 
 //stm32 based stuff can use hw counters
-void IRAM_ATTR pinChangeISR() {
-  int encCountOld = enc.getTicks();
 
-  enc.loop();
-
-  if (digitalRead(EncI)) {
-    EncIndexCount++;
-  } else {
-    EncIndexCount = 0;
-  }
-  //   //   // moving forwards ...
-  if (enc.getTicks() > encCountOld) {
-    //   //     // at index
-    if (EncIndexCount == 2) {  // reset counter on 'middle" transition during index condition
-      // count = 0;
-      if (opticalPrinter == 0) {
-        frame++;
-      } else {
-        frame--;
-      }
-
-      frame++;
-      FPSframe = 1000000.0 / framePeriod;  // update FPS calc based on period between each frame
-      framePeriod = 0;
-    } else {
-      // normal forwards count
-      FPScount = 10000.0 / countPeriod;  // update FPS calc based on period between the 100 encoder counts
-      countPeriod = 0;
-      motModeReal = 1;  // mark that we're running forwards
-    }
-
-    count++;
-    // wrap around
-    if (count > countsPerFrame - 1) {
-      count = 0;
-    }
-  } else {
-    //   //     // moving backwards ...
-    if (EncIndexCount == 2) {  // reset counter on 'middle" transition during index condition
-      // at index
-      // count = 0;
-      if (opticalPrinter == 0) {
-        frame--;
-      } else {
-        frame++;
-      }
-      FPSframe = 1000000.0 / framePeriod;  // update FPS calc based on period between each frame
-      framePeriod = 0;
-    } else {
-      // normal backwards count
-      FPScount = 10000.0 / countPeriod;  // update FPS calc based on period between the 100 encoder counts
-      countPeriod = 0;
-      motModeReal = -1;  // mark that we're running backwards
-    }
-    count--;
-    // wrap around the circle instead of using negative steps
-    if (count < 0) {
-      count = countsPerFrame - 1;
-    }
-  }
-
-
-  bool shutterState = shutterMap[count];  // copy shutter state to local variable in case it changes during the ISR execution (not possible?)
-  if (shutterState != shutterStateOld) {  // only update LED if shutter state changes (not every step)
-    send_LEDC();                          // actual update code is abstracted so it can be run in different contexts
-  }
-  shutterStateOld = shutterState;  // store to global variable for next time
-}
-
-
-// send info to the LEDC peripheral to update LED PWM (abstracted here because it's called from loop or ISR)
-void IRAM_ATTR send_LEDC() {
-  bool shutterState = shutterMap[count];  // copy shutter state to local variable in case it changes during the ISR execution (not possible?)
-
-  if (LedDimMode) {  // PWM mode
-    if (shutterState == 1 || enableShutter == 0) {
-      // LED ON for this step of shutter OR shutter is disabled OR single framing, so LED is always on
-      ledcSetup(ledChannel, ledBrightFreq, ledBrightRes);  // configure LED PWM function using LEDC channel
-      ledcAttachPin(ledPin, ledChannel);                   // attach the LEDC channel to the GPIO to be controlled
-      if (LedInvert) {
-        ledcWrite(ledChannel, (1 << ledBrightRes) - ledBright);  // set lamp to desired brightness (inverted)
-      } else {
-        ledcWrite(ledChannel, ledBright);  // set lamp to desired brightness
-      }
-
-
-    } else if (shutterState == 0 && enableShutter == 1) {
-      // LED OFF for this segment of shutter
-
-      if (LedInvert) {
-        // ledcDetachPin(ledPin);    // detach the LEDC channel to the GPIO to be controlled
-        digitalWrite(ledPin, 1);  // send pin high to turn off LED
-      } else {
-        // digitalWrite(ledPin, 0);  // send pin high to turn off LED
-        ledcDetachPin(ledPin);  // detach the LEDC channel to the GPIO to be controlled
-      }
-      ledcDetachPin(ledPin);
-    }
-
-  } else {
-    if (LedInvert) {
-      if (enableShutter) {
-        digitalWrite(ledPin, !(shutterState));  // active low, using shutter
-        ledcDetachPin(ledPin);
-      } else {
-        digitalWrite(ledPin, 0);  // active low, no shutter
-      }
-    } else {
-      if (enableShutter) {
-        digitalWrite(ledPin, shutterState);  // active high, using shutter
-      } else {
-        digitalWrite(ledPin, 1);  // active high, no shutter
-      }
-    }
-  }
-}
-
-
-// check for encoder magnet proximity
-void as5047MagCheck(void *pvParameters) { for(;;) {
-
-  // read magnet AGC data from sensor registers
-  readDataFrame = as5047.readRegister(DIAGAGC_REG);
-  Diaagc diaagc;
-  diaagc.raw = readDataFrame.values.data;
-  //Serial.println(diaagc.values.magl);
-
-  // check result for magnet errors and update global var
-  if (diaagc.values.magh || diaagc.values.magl) {
-    as5047MagOK = 0;
-  } else {
-    as5047MagOK = 1;
-  }
-
-  // take action if global var has changed
-  if (as5047MagOK_old != as5047MagOK) {
-    if (as5047MagOK) {
-      Serial.println("Magnet OK");
-      fixCount();  // magnet is back after loss, so fix the count using SPI
-    } else {
-      Serial.println("Magnet ERROR");
-      fixCount();  // magnet is back after loss, so fix the count using SPI
-    }
-    as5047MagOK_old = as5047MagOK;
-  }
-  vTaskDelay(100 / portTICK_PERIOD_MS);
-  }
-}
 
 
 
@@ -463,8 +316,11 @@ void calcFPS(void *pvParameters) { for(;;) { //moveto core 0 with related interr
 
 
 void updateMotor(void *pvParameters) { 
+  int motPotVal;
   for(;;) {
+    if (xSemaphoreTake(controlLock, portMAX_DELAY) == pdTRUE) {  // take control lock to read UI values and update shared variables that are used in other tasks and ISRs
       Serial.println("runMotUpdate");
+      xQueueReceive(motPot, &motPotVal, portMAX_DELAY);  // receive motor pot value from UI task via queue
 
 
   // mapped/clip motPotVal because kalman filter sometimes doesn't allow us to reach min/max)
@@ -491,7 +347,6 @@ void updateMotor(void *pvParameters) {
         motPotFPS = 0;
         motMode = 0;
         if (opticalPrinter == 0 && motMode == 0) {
-          ledBright = 0;
           send_LEDC();
         }
       }
@@ -575,180 +430,181 @@ void updateMotor(void *pvParameters) {
     pullDownPos = 20;
   }  //in case you want pin registration, though the eiki pin registration seems to be unreliable since the microcontroller does not check for the claw position fast enough believe it or not
 
-  if (motSingle == 1) {
-    // EIKI SINGLE FRAME FORWARD
-    if (motSingle != motSinglePrev) {
-      Serial.println("SINGLE FORWARD MOVE START");
-      frameOldsingle = frame;  // log the current frame when we began the single frame move
-      motSinglePrev = motSingle;
-      shutterQueue(1, 1.0);  // force open shutter for single framing
-    }
-    if (frameOldsingle != frame && count > pullDownPos) {  // keep out of pulldown in 0-13 zone, so try to land around 50
-      // we're ready to show frame
-      Serial.println("SINGLE FORWARD MOVE DONE");
-      FPStarget = 0;  // stop
-      if (opticalPrinter == 0) {
-        motSingle = 0;  // turn off single flag
-      } else if (opticalPrinter == 1 && opAlignment == 1) {
-        Serial.print("Projector is on frame "),
-          Serial.println(frame);
+//   if (motSingle == 1) {
+//     // EIKI SINGLE FRAME FORWARD
+//     if (motSingle != motSinglePrev) {
+//       Serial.println("SINGLE FORWARD MOVE START");
+//       frameOldsingle = frame;  // log the current frame when we began the single frame move
+//       motSinglePrev = motSingle;
+//       shutterQueue(1, 1.0);  // force open shutter for single framing
+//     }
+//     if (frameOldsingle != frame && count > pullDownPos) {  // keep out of pulldown in 0-13 zone, so try to land around 50
+//       // we're ready to show frame
+//       Serial.println("SINGLE FORWARD MOVE DONE");
+//       FPStarget = 0;  // stop
+//       if (opticalPrinter == 0) {
+//         motSingle = 0;  // turn off single flag
+//       } else if (opticalPrinter == 1 && opAlignment == 1) {
+//         Serial.print("Projector is on frame "),
+//           Serial.println(frame);
 
-        motSingle = 3;
-        opAlignment = 0;
-        mCopyStatus = 1;  //mcopy confirmation flag
-                          //frame++;
-        motSinglePrev = motSingle;
-        frameOldsingle = frame;
-      } else {
-        mCopyStatus = 1;  //mcopy confirmation flag
-                          //frame--;
-        motSingle = 3;
-      }
-      Serial.print("Projector is on frame "),
-        Serial.println(frame);
-      motSinglePrev = motSingle;
-      frameOldsingle = frame;
-      //updateShutterMap(shutBladesVal, shutAngleVal); // return to normal
-    } else {
-      // travel to the next frame
-      if (musicMode == 0) {
-        FPStarget = singleFPS * 1;  // jam in preset speed
-      } else if (musicMode == 1) {
-        FPStarget = 8;  // jam in preset speed
-      }
-    }
-  } else if (motSingle == -1) {
-    // EIKI SINGLE FRAME BACKWARD
-    if (motSingle != motSinglePrev) {
-      Serial.println("SINGLE BACKWARD MOVE START");
-      frameOldsingle = frame;  // log the current frame when we began the single frame move
-      motSinglePrev = motSingle;
-      shutterQueue(1, 1.0);  // force open shutter for single framing
-    }
-    if (frameOldsingle != frame && count < 80) {  // try to land around 50
-      // we're ready to show frame
-      Serial.println("SINGLE BACKWARD MOVE DONE");
-      FPStarget = 0;  // stop
-      if (opticalPrinter == 0) {
-        motSingle = 0;  // turn off single flag
-      } else if (opAlignment == 0) {
-        motSingle = -1;
-        opAlignment = 1;
-        motSinglePrev = motSingle;
-        frameOldsingle = frame;
-      } else if (opAlignment == 1 && motSingle == -1) {
-        motSingle = 1;
+//         motSingle = 3;
+//         opAlignment = 0;
+//         mCopyStatus = 1;  //mcopy confirmation flag
+//                           //frame++;
+//         motSinglePrev = motSingle;
+//         frameOldsingle = frame;
+//       } else {
+//         mCopyStatus = 1;  //mcopy confirmation flag
+//                           //frame--;
+//         motSingle = 3;
+//       }
+//       Serial.print("Projector is on frame "),
+//         Serial.println(frame);
+//       motSinglePrev = motSingle;
+//       frameOldsingle = frame;
+//       //updateShutterMap(shutBladesVal, shutAngleVal); // return to normal
+//     } else {
+//       // travel to the next frame
+//       if (musicMode == 0) {
+//         FPStarget = singleFPS * 1;  // jam in preset speed
+//       } else if (musicMode == 1) {
+//         FPStarget = 8;  // jam in preset speed
+//       }
+//     }
+//   } else if (motSingle == -1) {
+//     // EIKI SINGLE FRAME BACKWARD
+//     if (motSingle != motSinglePrev) {
+//       Serial.println("SINGLE BACKWARD MOVE START");
+//       frameOldsingle = frame;  // log the current frame when we began the single frame move
+//       motSinglePrev = motSingle;
+//       shutterQueue(1, 1.0);  // force open shutter for single framing
+//     }
+//     if (frameOldsingle != frame && count < 80) {  // try to land around 50
+//       // we're ready to show frame
+//       Serial.println("SINGLE BACKWARD MOVE DONE");
+//       FPStarget = 0;  // stop
+//       if (opticalPrinter == 0) {
+//         motSingle = 0;  // turn off single flag
+//       } else if (opAlignment == 0) {
+//         motSingle = -1;
+//         opAlignment = 1;
+//         motSinglePrev = motSingle;
+//         frameOldsingle = frame;
+//       } else if (opAlignment == 1 && motSingle == -1) {
+//         motSingle = 1;
 
-        motSinglePrev = motSingle;
-        frameOldsingle = frame;
-      }
-      Serial.print("Projector is on frame "),
-        Serial.println(frame);
-      // Serial2.println("h"); //mcopy confirmation flag
-      motSinglePrev = motSingle;
-      frameOldsingle = frame;
-      //updateShutterMap(shutBladesVal, shutAngleVal); // return to normal
-    } else {
-      // travel to the next frame
-      if (musicMode == 0) {
-        FPStarget = singleFPS * -1;  // jam in preset speed
-      } else if (musicMode) {
-        FPStarget = -8;  // jam in preset speed
-      }
-    }
-  } else if (motSingle == 2) {
-    // Eiki freeze frame (either button pressed while motor was running)
-    Serial.println("EIKI FREEZE FRAME");
-    FPStarget = 0;
-    shutterQueue(1, 1.0);  // force open shutter for single framing
-    // ledBright = ledBright * safeMin;
-    safeMode = 1;
-    send_LEDC();
-  } else if (motSingle == 3) {
-    // P26 "BURN" BUTTON special case
-    //    Serial.println("P26 BURN MODE (open shutter)");
-    shutterQueue(1, 1.0);  // force open shutter for single framing
-    send_LEDC();
-  } else if (motSingle == 4) {
-    ledcWrite(ledChannel, (ledBright / 2));
-  } else if (motSingle == 5) {
-    ledBright = 4096;
-    ledcWrite(ledChannel, (ledBright));
-  }
-
-
-// Transform FPStarget into motor microseconds using choice of 2 methods
-#if motorSpeedMode
-
-  // USE CLOSED LOOP motor control with feedback from encoder (not working well enough to use for Spectral)
-  float FPSdiff = abs(FPStarget - FPSrealAvg);
-  if (FPStarget > 6) {
-    if (FPSdiff < 2) FPSdiff = FPSdiff * 0.2;  // make changes much smaller when close to setpoint, but only at higher speeds so we can get started from stopped condition
-  }
-  float TESTmotSpeedUS;
-  if (FPStarget == 0) {
-    TESTmotSpeedUS = 1500;
-  } else if (FPStarget < FPSrealAvg) {
-    TESTmotSpeedUS = motSpeedUS + FPSdiff;
-  } else if (FPStarget > FPSrealAvg) {
-    TESTmotSpeedUS = motSpeedUS - FPSdiff;
-  }
-  motSpeedUS = TESTmotSpeedUS;
-  motSpeedUS = constrain(motSpeedUS, 1200, 1800);  // prevent runaway in case of broken belt or other disaster
-#else
-
-  // USE HARD-CODED SPEED
-  float TESTmotSpeedUS;
-
-  if (FPStarget == 0) {
-    TESTmotSpeedUS = 1500;
-  } else if (FPStarget > 0) {
-    if (opticalPrinter == 0) {
-      TESTmotSpeedUS = mapf(FPStarget, 0, 24, 1500 - minUSoffset, motMaxUS);
-    } else if (opticalPrinter == 1) {
-      TESTmotSpeedUS = mapf(FPStarget, 0, 24, 1500 - minUSoffsetPrinting, motMaxUS);
-    }
-  } else if (FPStarget < 0) {
-
-    if (opticalPrinter == 0) {
-      TESTmotSpeedUS = mapf(FPStarget, 0, -24, 1500 + minUSoffset, motMinUS);
-    } else if (opticalPrinter == 1) {
-      TESTmotSpeedUS = mapf(FPStarget, 0, -24, 1500 + minUSoffsetPrinting, motMinUS);
-    }
-  }
+//         motSinglePrev = motSingle;
+//         frameOldsingle = frame;
+//       }
+//       Serial.print("Projector is on frame "),
+//         Serial.println(frame);
+//       // Serial2.println("h"); //mcopy confirmation flag
+//       motSinglePrev = motSingle;
+//       frameOldsingle = frame;
+//       //updateShutterMap(shutBladesVal, shutAngleVal); // return to normal
+//     } else {
+//       // travel to the next frame
+//       if (musicMode == 0) {
+//         FPStarget = singleFPS * -1;  // jam in preset speed
+//       } else if (musicMode) {
+//         FPStarget = -8;  // jam in preset speed
+//       }
+//     }
+//   } else if (motSingle == 2) {
+//     // Eiki freeze frame (either button pressed while motor was running)
+//     Serial.println("EIKI FREEZE FRAME");
+//     FPStarget = 0;
+//     shutterQueue(1, 1.0);  // force open shutter for single framing
+//     // ledBright = ledBright * safeMin;
+//     safeMode = 1;
+//     send_LEDC();
+//   } else if (motSingle == 3) {
+//     // P26 "BURN" BUTTON special case
+//     //    Serial.println("P26 BURN MODE (open shutter)");
+//     shutterQueue(1, 1.0);  // force open shutter for single framing
+//     send_LEDC();
+//   } else if (motSingle == 4) {
+//     ledcWrite(ledChannel, (ledBright / 2));
+//   } else if (motSingle == 5) {
+//     ledBright = 4096;
+//     ledcWrite(ledChannel, (ledBright));
+//   }
 
 
-  //note that to calculate min speed it is 1500 - measured "Mot uS" -- however, target speed is not spit out correctly!!!
-  motSpeedUS = TESTmotSpeedUS;
-  //motSpeedUS = mapf(FPStarget, -24.0, 24.0, motMinUS, motMaxUS);  // basic method without enforcing minumum speed
-#endif
+// // Transform FPStarget into motor microseconds using choice of 2 methods
+// #if motorSpeedMode
 
-  int motDuty = (1 << motPWMRes) * motSpeedUS / motPWMPeriod;  // convert pulse width to PWM duty cycle (duty = # of values at current res * US / pulse period)
-  ledcWrite(motPWMChannel, motDuty);                           // update motor speed
-  if (debugMotor) {
-    Serial.print("Mot Mode: ");
-    Serial.print(motMode);
-    Serial.print(", Single Mode: ");
-    Serial.print(motSingle);
-    Serial.print(", Mot Slew: ");
-    Serial.print(motSlewVal);
-    Serial.print(", FPS Target: ");
-    Serial.print(FPStarget);
-    Serial.print(", FPS Real Avg: ");
-    Serial.print(FPSrealAvg);
-    Serial.print(", Mot uS: ");
-    Serial.print(motSpeedUS);
-    Serial.print(", Mot PWM: ");
-    Serial.println(motDuty);
-  }
-  if (debugFPSgraph) {
-    Serial.print("-24, ");
-    Serial.print(FPSrealAvg);
-    Serial.println(", 24");
-  }
+//   // USE CLOSED LOOP motor control with feedback from encoder (not working well enough to use for Spectral)
+//   float FPSdiff = abs(FPStarget - FPSrealAvg);
+//   if (FPStarget > 6) {
+//     if (FPSdiff < 2) FPSdiff = FPSdiff * 0.2;  // make changes much smaller when close to setpoint, but only at higher speeds so we can get started from stopped condition
+//   }
+//   float TESTmotSpeedUS;
+//   if (FPStarget == 0) {
+//     TESTmotSpeedUS = 1500;
+//   } else if (FPStarget < FPSrealAvg) {
+//     TESTmotSpeedUS = motSpeedUS + FPSdiff;
+//   } else if (FPStarget > FPSrealAvg) {
+//     TESTmotSpeedUS = motSpeedUS - FPSdiff;
+//   }
+//   motSpeedUS = TESTmotSpeedUS;
+//   motSpeedUS = constrain(motSpeedUS, 1200, 1800);  // prevent runaway in case of broken belt or other disaster
+// #else
 
+//   // USE HARD-CODED SPEED
+//   float TESTmotSpeedUS;
+
+//   if (FPStarget == 0) {
+//     TESTmotSpeedUS = 1500;
+//   } else if (FPStarget > 0) {
+//     if (opticalPrinter == 0) {
+//       TESTmotSpeedUS = mapf(FPStarget, 0, 24, 1500 - minUSoffset, motMaxUS);
+//     } else if (opticalPrinter == 1) {
+//       TESTmotSpeedUS = mapf(FPStarget, 0, 24, 1500 - minUSoffsetPrinting, motMaxUS);
+//     }
+//   } else if (FPStarget < 0) {
+
+//     if (opticalPrinter == 0) {
+//       TESTmotSpeedUS = mapf(FPStarget, 0, -24, 1500 + minUSoffset, motMinUS);
+//     } else if (opticalPrinter == 1) {
+//       TESTmotSpeedUS = mapf(FPStarget, 0, -24, 1500 + minUSoffsetPrinting, motMinUS);
+//     }
+//   }
+
+
+//   //note that to calculate min speed it is 1500 - measured "Mot uS" -- however, target speed is not spit out correctly!!!
+//   motSpeedUS = TESTmotSpeedUS;
+//   //motSpeedUS = mapf(FPStarget, -24.0, 24.0, motMinUS, motMaxUS);  // basic method without enforcing minumum speed
+// #endif
+
+//   int motDuty = (1 << motPWMRes) * motSpeedUS / motPWMPeriod;  // convert pulse width to PWM duty cycle (duty = # of values at current res * US / pulse period)
+//   ledcWrite(motPWMChannel, motDuty);                           // update motor speed
+//   if (debugMotor) {
+//     Serial.print("Mot Mode: ");
+//     Serial.print(motMode);
+//     Serial.print(", Single Mode: ");
+//     Serial.print(motSingle);
+//     Serial.print(", Mot Slew: ");
+//     Serial.print(motSlewVal);
+//     Serial.print(", FPS Target: ");
+//     Serial.print(FPStarget);
+//     Serial.print(", FPS Real Avg: ");
+//     Serial.print(FPSrealAvg);
+//     Serial.print(", Mot uS: ");
+//     Serial.print(motSpeedUS);
+//     Serial.print(", Mot PWM: ");
+//     Serial.println(motDuty);
+//   }
+//   if (debugFPSgraph) {
+//     Serial.print("-24, ");
+//     Serial.print(FPSrealAvg);
+//     Serial.println(", 24");
+//   }
+      xSemaphoreGive(controlLock);  // release control lock so other tasks and ISRs can read updated values and run
      vTaskDelay(20 / portTICK_PERIOD_MS);
 
+    }
 }
 }
 

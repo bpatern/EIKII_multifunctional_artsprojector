@@ -9,6 +9,8 @@ float shutAngleVal;
 
 
     for (;;) {
+        if (xSemaphoreTake(controlLock, portMAX_DELAY) == pdTRUE) {  // take control lock to read UI values and update shared variables that are used in other tasks and ISRs
+        
 
   Serial.println("runUIREAD");
 
@@ -66,6 +68,7 @@ float shutAngleVal;
 #if (enableSafeSwitch)
   safeMode = digitalRead(safeSwitch);
 #endif
-
+xSemaphoreGive(controlLock);  // give back control lock after updating shared variables that are used in other tasks and ISRs
 vTaskDelay(100 / portTICK_PERIOD_MS);}
+    } 
 }

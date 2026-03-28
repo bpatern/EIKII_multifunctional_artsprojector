@@ -121,12 +121,14 @@ vTaskDelay(50 / portTICK_PERIOD_MS);}
 
 
 void IRAM_ATTR send_LEDC() {
-  int ledBright;
-  xQueueReceive(q_ledBright, &ledBright, portMAX_DELAY);  // receive LED brightness value from LED task via queue
- uint shutterMap;  // copy shutter state to local variable in case it changes during the ISR execution (not possible?)
-    xRingbufferReceive(q_shutterMap, &shutterMap, portMAX_DELAY);  // receive shutter map from shutter task via queue
+
+  static int ledBright;
+
+    xQueueReceiveFromISR(q_ledBright, &ledBright, NULL);  // receive LED brightness value from LED task via queue
+    xRingbufferReceiveUpToFromISR(&q_shutterMap, shutMapIRQ, sizeof(shutterMap[1]));  // receive shutter map from shutter task via queue
+
   if (LedDimMode) {  // PWM mode
-    if (shutterMap == 1 || enableShutter == 0) {
+    if ((bool)shutMapIRQ == 1 || enableShutter == 0) {
       // LED ON for this step of shutter OR shutter is disabled OR single framing, so LED is always on
       ledcSetup(ledChannel, ledBrightFreq, ledBrightRes);  // configure LED PWM function using LEDC channel
       ledcAttachPin(ledPin, ledChannel);                   // attach the LEDC channel to the GPIO to be controlled
@@ -139,7 +141,7 @@ void IRAM_ATTR send_LEDC() {
 
 
 
-    } else if (shutterMap == 0 && enableShutter == 1) {
+    } else if ((bool)shutMapIRQ == 0 && enableShutter == 1) {
       // LED OFF for this segment of shutter
 
     //   if (LedInvert) {
@@ -170,4 +172,6 @@ void IRAM_ATTR send_LEDC() {
 //       }
 //     }
   }
+
+  return;
 }

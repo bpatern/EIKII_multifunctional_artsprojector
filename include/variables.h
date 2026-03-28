@@ -6,7 +6,14 @@ int musicMode = 0;
 
 static QueueHandle_t outCommanderQueue;
 static QueueHandle_t q_shutterBlade, q_shutterAngle, q_ledBright;
-static QueueHandle_t motPot, ledPot, shutBladePot, shutAnglePot, ;
+static QueueHandle_t motPot, ledPot, shutBladePot, shutAnglePot;
+// static QueueHandle_t q_shutterMap;
+static RingbufHandle_t q_shutterMap;
+    static SemaphoreHandle_t encoderMutex = NULL; // create a mutex to protect the encoder count variable that is updated in the ISR and read in the main loop
+static SemaphoreHandle_t controlLock = NULL;
+    portMUX_TYPE shutterFunctionLock = portMUX_INITIALIZER_UNLOCKED;  // create a spinlock to protect the shutter function that is called in the ISR and uses shared variables
+
+
 
 uint8_t sendingIndividualCommand = 0; //flag to indicate whether we're sending an individual command or the full data string. if 1, we send individual command, if 0 we send full data string. this is to prevent flooding the commander with the full data string when we're just trying to send a single command (like a shutter open/close command from the aux display)
 static intr_handle_t handle_console;
@@ -35,18 +42,16 @@ int receivedRecvdConfirm2;
 int receivedRecvdConfirm;
 
 
-int ledSlewValOld;
 int ledSlewMin = 0;      // the minumum slew value when knob is turned down (msec).
 int ledSlewMax = 10000;  // the max slew value when knob is turned up (msec).
 
 int motSlewVal = 0;
-int motSlewValOld;
+int motSlewValOld = 0;
 int motSlewMin = 0;      // the minumum slew value when knob is turned down (msec).
 int motSlewMax = 10000;  // the max slew value when knob is turned up (msec).
 
 
-int shutBladesValOld;
-float shutAngleValOld;
+
 
 volatile int as5047absAngle;
 
@@ -58,7 +63,7 @@ int ledPotValOld;
 // LED VARS //
 int LedDimMode = 1;               // 0 = current-controlled dimming (NOT YET IMPLEMENTED!), 1 = PWM dimming
 int LedInvert = 1;                // set to 1 to invert LED output signal so it's active-low (required by H6cc driver board)
-int ledBright = 0;                // current brightness of LED (range depends on Res below. If we're ramping then this will differ from pot value)
+// int ledBright = 0;                // current brightness of LED (range depends on Res below. If we're ramping then this will differ from pot value)
 float safeSpeedMult = 0.4;        // multiplier to use in "safe mode" to lower lamp brightness at low FPS
 const int ledBrightRes = 12;      // bits of resolution for LED dimming
 const int ledBrightFreq = 18000;  // PWM frequency (500Hz is published max for H6cc LED driver, 770Hz is closer to shutter segment period, 1000 seems to work best)
@@ -78,16 +83,23 @@ const int motPWMChannel = 2;              // ESP32 LEDC channel number. Pairs sh
 const int motPWMFreq = 50;                // PWM frequency (50Hz is standard for RC servo / ESC)
 int motPWMPeriod = 1000000 / motPWMFreq;  // microseconds per pulse
 
-volatile bool shutterMap[countsPerFrame];  // array holding values for lamp state at each position of digital shutter
+// volatile bool shutterMap[countsPerFrame];  // array holding values for lamp state at each position of digital shutter
 volatile bool shutterStateOld = 0;         // stores the on/off state of the shutter from previous encoder position
 static byte abOld;                         // Initialize state
-volatile int count;                        // current rotary count
-int countOld;                              // old rotary count
-volatile int EncIndexCount;                // How many times have the A or B pulses transitioned while index pulse has been high
+static int encCount;
+    static int16_t * encPos;
+//   static int encCountOld;
+static int encCountOld;                              // old rotary count
+static int EncIndexCount;
+ volatile bool shutterMap[countsPerFrame];  // array to hold the on/off state of the shutter for each count position
+
+ static size_t *shutMapIRQ;
+
 
 
 // Machine Status Variables
-volatile long frame = 0;      // current frame number (frame counter)
+  static long frame;      // current frame number (frame counter)
+
 long frameOld = 0;            // old frame number for encoder
 long frameOldsingle = 0;      // old frame number for encoder
 volatile float FPScount = 0;  // measured FPS, sourced from encoder counts (100 updates per frame)

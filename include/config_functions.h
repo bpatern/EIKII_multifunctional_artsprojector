@@ -175,6 +175,8 @@ void createTasks() {
 }
 void interfaceConfig()
 {
+
+    controlLock = xSemaphoreCreateMutex();
     if (enableStatusLed)
     {
           pixels.begin();                // INITIALIZE NeoPixel object
@@ -219,7 +221,65 @@ void interfaceConfig()
 
 void as5047Config()
 {
-    abOld = count = countOld = 0;
+    //mutex means mutual exclusion. we need this to make sure certain things arent being accessed at the same exact time
+    //example: imagine a burger being eaten in a doorless house
+    //what if i was trying to eat a burger and some freak who was able to get in snatched the burger half eaten from my hands
+
+    // now i'd only have half a burger of satisfaction and so would the burger thief.
+    //now imagine if the completion of the burger meal was the key to world peace. now everythings fucked
+
+    //mutex is kinda like locking a door to make sure just one person can eat the burger at a time
+    //you can decide when to unlock that door
+
+    
+    encoderMutex = xSemaphoreCreateMutex();
+
+    gpio_config_t index_conf = {
+        .pin_bit_mask = (1ULL << EncI),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&index_conf);
+
+    gpio_config_t enc_conf = {
+        .pin_bit_mask = (1ULL << EncA) | (1ULL << EncB),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_ANYEDGE
+    };
+    gpio_config(&enc_conf);
+gpio_install_isr_service(0); // install GPIO ISR service with default configuration
+gpio_isr_handler_add((gpio_num_t)EncA, pinChangeISR, NULL); // attach the interrupt service routine to the GPIO pin for channel A
+gpio_isr_handler_add((gpio_num_t)EncB, pinChangeISR, NULL); // attach the interrupt service routine to the GPIO pin for channel B
+gpio_isr_handler_add((gpio_num_t)EncI, indexISR, NULL); // attach the interrupt service routine to the GPIO pin for index
+    pcnt_config_t as5047_config = {
+        .pulse_gpio_num = (gpio_num_t) EncA,
+        .ctrl_gpio_num = (gpio_num_t) EncB,
+        
+        .lctrl_mode = PCNT_MODE_KEEP,
+        .hctrl_mode = PCNT_MODE_REVERSE,
+        .pos_mode = PCNT_COUNT_INC,
+        .neg_mode = PCNT_COUNT_DEC,
+
+        //shutter blade total pulses
+        .counter_h_lim = 100,
+        .counter_l_lim = -100,
+
+        .unit = (pcnt_unit_t) 0,
+        .channel = PCNT_CHANNEL_0,
+    };
+
+    pcnt_unit_config(&as5047_config);
+    pcnt_set_filter_value((pcnt_unit_t)0, 10);
+    pcnt_counter_pause((pcnt_unit_t)0);
+    pcnt_counter_clear((pcnt_unit_t)0);
+    
+
+
+    abOld = encCount = encCountOld = 0;
     // Set rotation direction (see AS5047 datasheet page 17)
     Settings1 settings1;
     settings1.values.dir = encoderDir;
@@ -236,13 +296,7 @@ void as5047Config()
     zposl.values.compHerrorEn = 1;
     as5047.writeZeroPosition(zposm, zposl);
 
-    attachInterrupt(EncA, pinChangeISR, CHANGE);
-    attachInterrupt(EncB, pinChangeISR, CHANGE);
-    if (enc.init()) {
-      Serial.println("PWM Encoder GOOD");
-    } else {
-      Serial.println("PWM Encoder ERROR");
-    }
+    pcnt_counter_resume((pcnt_unit_t)0);
 
       fixCount();                                     // at startup we don't know the absolute position via ABI, so ask SPI
 

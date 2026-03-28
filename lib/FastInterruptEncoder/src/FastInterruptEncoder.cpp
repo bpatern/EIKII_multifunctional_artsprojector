@@ -117,7 +117,7 @@ void Encoder::setEncoder(int pinA, int pinB, encoder_mode_t mode, uint8_t filter
 	}
 	
 	void Encoder::loop(){
-	  int16_t c;
+	  static int16_t c;
 	  pcnt_get_counter_value(unit, &c);
        
 	  if ((_prevTicks+c) != _prevTicks){
