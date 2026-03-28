@@ -55,6 +55,11 @@
 
 #include "encoder.h"
 
+#include "ui.h"
+
+#include "led.h"
+
+
 
 
 
@@ -65,16 +70,23 @@
 
 void setup() {
 
+
+
   lightSetup();
 
   interfaceConfig();
+
+      uartConfig();
+
+        createTasks();
 
   if (useAS5047) {
     as5047Config();
   }
 
   
-    uartConfig();
+
+
 
     mathConfig();
 
@@ -91,7 +103,6 @@ void setup() {
   motorConfig();
   }
 
-  createTasks();
   
 
 }
@@ -301,173 +312,106 @@ void as5047MagCheck(void *pvParameters) { for(;;) {
   }
 }
 
-// Correct the encoder count by asking the sensor for real value over SPI
-// This is required during setup since interrupt counts are relative but SPI is absolute
-// Also useful if we ever need to recover from a temporary loss of magnet position
-void fixCount() {
-  count = map(as5047.readAngle(), 0, 360, 0, 100);
-  Serial.println("   (Updated count via SPI)");
-}
 
-// fill shutterMap array with boolean values to control LED state at each position of shutter rotation
-void updateShutterMap(byte shutterBlades, float shutterAngle) { //move to core 0 with related interrupts
-  //Serial.print("Update ShutterMap");
-  // shutterBlades: number of virtual shutter blades (must be > 0)
-  // shutterAngle: ratio between on/off for each shutter blade segment (0.5 = 180d)
-  if (shutterBlades < 1) shutterBlades = 1;          // it would break if set to 0
-  shutterAngle = constrain(shutterAngle, 0.0, 1.0);  // make sure it's 0-1
-  for (int myBlade = 0; myBlade < shutterBlades; myBlade++) {
-    int countOffset = myBlade * (countsPerFrame / shutterBlades);
-    for (int myCount = 0; myCount < countsPerFrame / shutterBlades; myCount++) {
-      if (myCount < countsPerFrame / shutterBlades * (1.0 - shutterAngle)) {
-        shutterMap[myCount + countOffset] = 0;
-      } else {
-        shutterMap[myCount + countOffset] = 1;
-      }
-    }
-  }
-}
+
 
 // Read user interface buttons and pots
 // NOTE incurs 12ms blocking delay to help calm down crappy ADC between readings.
-void readUI(void *pvparemeters) { for (;;) {
 
-  Serial.println("runUIREAD");
-
-
-  //if (onboardcontrol == 1) {
-
-#if (enableButtons)
-  buttonA.loop();  // update button managed by Bounce2 library
-  buttonB.loop();  // update button managed by Bounce2 library
-
-
-#endif
 
   // update each pot using Kalman filter to reduce horrible terrible awful ADC noise
-  if (musicMode == 0) {
-    motPotVal = motPotKalman.updateEstimate(analogRead(motPotPin));
+//   if (musicMode == 0) {
 
-    // delay(2);
-    //given intervals to control optical printer timing/light. i am a simple man and im happier with less choices here. intervals of 409 are used.
-    //this could be done as a formula probably. dunno!
-    if (opticalPrinter == 1) {
-      ledPotVal = ledPotKalman.updateEstimate(analogRead(ledPotPin));
-      if (ledPotVal < 409) {
-        ledPotVal = 409;
-      } else if (ledPotVal > 409 && ledPotVal < 818) {
-        ledPotVal = 818;
-      } else if (ledPotVal > 818 && ledPotVal < 1227) {
-        ledPotVal = 1227;
-      } else if (ledPotVal > 1227 && ledPotVal < 1636) {
-        ledPotVal = 1636;
-      } else if (ledPotVal > 1636 && ledPotVal < 2045) {
-        ledPotVal = 2045;
-      } else if (ledPotVal > 2045 && ledPotVal < 2454) {
-        ledPotVal = 2454;
-      } else if (ledPotVal > 2454 && ledPotVal < 2863) {
-        ledPotVal = 2863;
-      } else if (ledPotVal > 2863 && ledPotVal < 3272) {
-        ledPotVal = 3272;
-      } else if (ledPotVal > 3272 && ledPotVal < 3681) {
-        ledPotVal = 3681;
-      } else if (ledPotVal > 3681 && ledPotVal < 4090) {
-        ledPotVal = 4090;
-      }
-    } else if (opticalPrinter == 0) {
-      ledPotVal = ledPotKalman.updateEstimate(analogRead(ledPotPin));
-    }
-    // delay(2);
-  } else if (musicMode == 1) {
-    motPotVal = map(CC1ProjSpeed, 0, 100, 0, 4095);
-    ledPotVal = map(CC3ProjBright, 0, 100, 0, 4095);
+//     motPotVal = motPotKalman.updateEstimate(analogRead(motPotPin));
 
-    //inject values during Music Mode
-  }
+//     // delay(2);
+//     //given intervals to control optical printer timing/light. i am a simple man and im happier with less choices here. intervals of 409 are used.
+//     //this could be done as a formula probably. dunno!
+//     if (opticalPrinter == 1) {
+//       ledPotVal = ledPotKalman.updateEstimate(analogRead(ledPotPin));
+//       if (ledPotVal < 409) {
+//         ledPotVal = 409;
+//       } else if (ledPotVal > 409 && ledPotVal < 818) {
+//         ledPotVal = 818;
+//       } else if (ledPotVal > 818 && ledPotVal < 1227) {
+//         ledPotVal = 1227;
+//       } else if (ledPotVal > 1227 && ledPotVal < 1636) {
+//         ledPotVal = 1636;
+//       } else if (ledPotVal > 1636 && ledPotVal < 2045) {
+//         ledPotVal = 2045;
+//       } else if (ledPotVal > 2045 && ledPotVal < 2454) {
+//         ledPotVal = 2454;
+//       } else if (ledPotVal > 2454 && ledPotVal < 2863) {
+//         ledPotVal = 2863;
+//       } else if (ledPotVal > 2863 && ledPotVal < 3272) {
+//         ledPotVal = 3272;
+//       } else if (ledPotVal > 3272 && ledPotVal < 3681) {
+//         ledPotVal = 3681;
+//       } else if (ledPotVal > 3681 && ledPotVal < 4090) {
+//         ledPotVal = 4090;
+//       }
+//     } else if (opticalPrinter == 0) {
+//       ledPotVal = ledPotKalman.updateEstimate(analogRead(ledPotPin));
+//     }
+//     // delay(2);
+//   } else if (musicMode == 1) {
+//     motPotVal = map(CC1ProjSpeed, 0, 100, 0, 4095);
+//     ledPotVal = map(CC3ProjBright, 0, 100, 0, 4095);
 
-#if (enableSlewPots)
-  motSlewVal = motSlewPotKalman.updateEstimate(analogRead(motSlewPotPin));
-  // delay(2);
-  ledSlewVal = ledSlewPotKalman.updateEstimate(analogRead(ledSlewPotPin));
-  // delay(2);
-#endif
-
-  // load the hard-coded shutter vals in case the pots are disabled
-  shutBladesVal = shutterBlades;
-  shutAngleVal = shutterAngle;
-
-#if (enableShutterPots && enableShutter)
-  if (musicMode == 0) {
-    shutBladesPotVal = shutBladesPotKalman.updateEstimate(analogRead(shutBladesPotPin));
-    // delay(2);
-  } else if (musicMode == 1) {
-    shutBladesPotVal = map(CC2ProjBlades, 0, 100, 0, 4095);
-    //inject values during Music Mode
-  }
-  shutAnglePotVal = shutAnglePotKalman.updateEstimate(analogRead(shutAnglePotPin));
-  // delay(2);
-  // using custom scaling for shutBladesPotVal to make control feel right
-  if (shutBladesPotVal < 800) {
-    shutBladesVal = 1;
-  } else if (shutBladesPotVal < 2500) {
-    shutBladesVal = 2;
-  } else {
-    shutBladesVal = 3;
-  }
-  shutAngleVal = mapf(shutAnglePotVal, 0, 4090, 0.1, 1.0);  // map ADC input to range of shutter angle
-  shutAngleVal = constrain(shutAngleVal, 0.1, 1.0);         // clip values
-#endif
-
-#if (enableSafeSwitch)
-  safeMode = digitalRead(safeSwitch);
-#endif
-
-  if (debugUI) {
-    if (enableMotSwitch) {
-      // print selector switch debug info , even though we aren't using it inside this function
-      // Motor UI is switch + pot, so use normal pot scaling
-      if (!digitalRead(motDirFwdSwitch)) {
-        Serial.print("Mot For, ");
-      } else if (!digitalRead(motDirBckSwitch)) {
-        Serial.print("Mot Back, ");
-      } else {
-        Serial.print("Mot Stop, ");
-      }
-    }
-    Serial.print("Mot Speed: ");
-    Serial.print(motPotVal);
-#if (enableSlewPots)
-    Serial.print(", Mot Slew: ");
-    Serial.print(motSlewVal);
-#endif
-    Serial.print(", Lamp Bright: ");
-    Serial.print(ledPotVal);
-#if (enableSlewPots)
-    Serial.print(", Lamp Slew: ");
-    Serial.print(ledSlewVal);
-#endif
-#if (enableShutterPots)
-    Serial.print(", Shut Blade: ");
-    Serial.print(shutBladesPotVal);
-    Serial.print(", Shut Angle: ");
-    Serial.print(shutAnglePotVal);
-#endif
-#if (enableSafeSwitch)
-    Serial.print(", Safe Mode: ");
-    Serial.print(safeMode);
-#endif
-    Serial.println("");
-
-  }
+//     //inject values during Music Mode
+//   }
 
 
 
-  //}
-  //else{
 
-  //}
-vTaskDelay(100 / portTICK_PERIOD_MS);}
-}
+
+
+
+//   if (debugUI) {
+//     if (enableMotSwitch) {
+//       // print selector switch debug info , even though we aren't using it inside this function
+//       // Motor UI is switch + pot, so use normal pot scaling
+//       if (!digitalRead(motDirFwdSwitch)) {
+//         Serial.print("Mot For, ");
+//       } else if (!digitalRead(motDirBckSwitch)) {
+//         Serial.print("Mot Back, ");
+//       } else {
+//         Serial.print("Mot Stop, ");
+//       }
+//     }
+//     Serial.print("Mot Speed: ");
+//     Serial.print(motPotVal);
+// #if (enableSlewPots)
+//     Serial.print(", Mot Slew: ");
+//     Serial.print(motSlewVal);
+// #endif
+//     Serial.print(", Lamp Bright: ");
+//     Serial.print(ledPotVal);
+// #if (enableSlewPots)
+//     Serial.print(", Lamp Slew: ");
+//     Serial.print(ledSlewVal);
+// #endif
+// #if (enableShutterPots)
+//     Serial.print(", Shut Blade: ");
+//     Serial.print(shutBladesPotVal);
+//     Serial.print(", Shut Angle: ");
+//     Serial.print(shutAnglePotVal);
+// #endif
+// #if (enableSafeSwitch)
+//     Serial.print(", Safe Mode: ");
+//     Serial.print(safeMode);
+// #endif
+//     Serial.println("");
+
+//   }
+
+
+
+//   //}
+//   //else{
+
+//   //}
+
 
 
 
@@ -516,106 +460,7 @@ void calcFPS(void *pvParameters) { for(;;) { //moveto core 0 with related interr
 }
 
 // compute LED brightness (note that the ISR ultimately controls the LED state if enableShutter = 1)
-void updateLed(void *pvParameters) { for(;;) {
-  //noInterrupts();
-    Serial.println("runLEDREAD");
 
-
-  if (abs(shutBladesVal != shutBladesValOld) || abs(shutAngleVal - shutAngleValOld) >= 0.05) {
-    if (enableShutter == 1) {
-      //Serial.println("(SHUTTERMAP SHUTTER POTS)");
-      updateShutterMap(shutBladesVal, shutAngleVal);
-    }
-    shutBladesValOld = shutBladesVal;
-    shutAngleValOld = shutAngleVal;
-  }
-
-#if (enableSlewPots)
-  ledSlewVal = map(ledSlewVal, 0, 4095, ledSlewMin, ledSlewMax);  // turn slew val pot into ms ramp time
-#endif
-  ledAvg.update();  // LED slewing managed by Ramp library
-  // if knobs have changed sufficiently, calculate new slewing ramp time
-  if (musicMode == 0) {
-    if (abs(ledSlewVal - ledSlewValOld) >= 50 || abs(ledPotVal - ledPotValOld) >= 50) {
-      //Serial.println("(LED UPDATE SLEW)");
-      ledAvg.go(ledPotVal, ledSlewVal);  // set next ramp interpolation in ms
-      ledSlewValOld = ledSlewVal;
-      ledPotValOld = ledPotVal;
-    }
-
-    // set brightness to slewed version of pot value (mapped/clipped because kalman filter sometimes doesn't allow us to reach min/max)
-    ledBright = map(ledAvg.getValue(), 40, 4045, ledMin, ledMax);
-    ledBright = constrain(ledBright, 0, 4095);
-  } else if (musicMode == 1) {
-
-    if (abs(ledSlewVal - ledSlewValOld) >= 50 || abs(ledPotVal - ledPotValOld) >= 50) {
-      //Serial.println("(LED UPDATE SLEW)");
-      ledAvg.go(ledPotVal, ledSlewVal);  // set next ramp interpolation in ms
-      ledSlewValOld = ledSlewVal;
-      ledPotValOld = ledPotVal;
-    }
-
-    ledBright = map(ledAvg.getValue(), 0, 100, ledMin, ledMax);
-
-    ledBright = constrain(ledBright, 0, 4095);
-  }
-
-  // SAFE MODE CHECK
-  if (safeMode == 1) {
-    if (motSingle != 0) {
-      // We're in one of the single modes, so ...
-      ledBright = ledBright * safeMin;  // dim lamp to min safe brightness immediately
-    } else {
-      safeSpeedMult = fscale(4, 24.0, safeMin, 1.0, abs(FPSrealAvg), 0);  // safety multiplier for FPS (with optional nonlinear scaling)
-      safeSpeedMult = constrain(safeSpeedMult, safeMin, 1.0);             // clip values
-      ledBright = ledBright * safeSpeedMult;                              // decrease brightness to prevent film burns
-    }
-  }
-
-  if ((opticalPrinter == 1 || scanFlag == 1) && capFlag == 1) {
-    ledBright = ledBright;
-    updateShutterMap(1, 1.0);  // force open shutter for single framing
-    digitalWrite(ledPin, 1);
-    send_LEDC();
-  } else if ((opticalPrinter == 1 || scanFlag == 1) && capFlag == 0) {
-    ledBright = 0;
-    send_LEDC();
-    //this is for emulating a capper, so that i can work with intervals in Mcopy
-  }
-
-  // STOPPED CHECK (Turn off lamp if projector is stopped, except when single buttons are pressed or single is active)
-  if (opticalPrinter == 0 && scanFlag == 0) {
-    if (FPSrealAvg == 0 && motSingle == 0 && !buttonAstate && !buttonBstate) {
-      ledBright = 0;
-    }
-    //Serial.print("STOP CHECK ");
-  }
-
-
-
-
-  //interrupts();
-
-  if (debugLed) {
-    Serial.print("LED Slew: ");
-    Serial.print(ledSlewVal);
-    Serial.print(", LED Pot: ");
-    Serial.print(ledPotVal);
-    Serial.print(", Spd Mult: ");
-    Serial.print(safeSpeedMult);
-    Serial.print(", LED Bright: ");
-    Serial.print(ledBright);
-    Serial.print(", Shutter Blades: ");
-    Serial.print(shutBladesVal);
-    Serial.print(", Shutter Angle: ");
-    Serial.println(shutAngleVal);
-  }
-  // at slow speeds OR if the shutter is fully open OR shutter disabled, update the LED PWM directly because ISR isn't firing often (or at all)
-  if (countPeriod > 50000 || shutAngleVal == 1.0 || !enableShutter || musicMode == 1) {
-    send_LEDC();
-  }
-vTaskDelay(50 / portTICK_PERIOD_MS);}
-}
 
 void updateMotor(void *pvParameters) { 
   for(;;) {
@@ -736,7 +581,7 @@ void updateMotor(void *pvParameters) {
       Serial.println("SINGLE FORWARD MOVE START");
       frameOldsingle = frame;  // log the current frame when we began the single frame move
       motSinglePrev = motSingle;
-      updateShutterMap(1, 1.0);  // force open shutter for single framing
+      shutterQueue(1, 1.0);  // force open shutter for single framing
     }
     if (frameOldsingle != frame && count > pullDownPos) {  // keep out of pulldown in 0-13 zone, so try to land around 50
       // we're ready to show frame
@@ -778,7 +623,7 @@ void updateMotor(void *pvParameters) {
       Serial.println("SINGLE BACKWARD MOVE START");
       frameOldsingle = frame;  // log the current frame when we began the single frame move
       motSinglePrev = motSingle;
-      updateShutterMap(1, 1.0);  // force open shutter for single framing
+      shutterQueue(1, 1.0);  // force open shutter for single framing
     }
     if (frameOldsingle != frame && count < 80) {  // try to land around 50
       // we're ready to show frame
@@ -815,14 +660,14 @@ void updateMotor(void *pvParameters) {
     // Eiki freeze frame (either button pressed while motor was running)
     Serial.println("EIKI FREEZE FRAME");
     FPStarget = 0;
-    updateShutterMap(1, 1.0);  // force open shutter for single framing
+    shutterQueue(1, 1.0);  // force open shutter for single framing
     // ledBright = ledBright * safeMin;
     safeMode = 1;
     send_LEDC();
   } else if (motSingle == 3) {
     // P26 "BURN" BUTTON special case
     //    Serial.println("P26 BURN MODE (open shutter)");
-    updateShutterMap(1, 1.0);  // force open shutter for single framing
+    shutterQueue(1, 1.0);  // force open shutter for single framing
     send_LEDC();
   } else if (motSingle == 4) {
     ledcWrite(ledChannel, (ledBright / 2));
@@ -958,13 +803,13 @@ void released(Button2& btn) {
       if (motSingle == 2 || motSingle == 3) motSingle = 0;  // turn off single flag if we're leaving Eiki freeze-frame mode or P26 open shutter mode
       motSinglePrev = motSingle;
       buttonAstate = 0;
-      updateShutterMap(shutBladesVal, shutAngleVal);  // return shutter map to normal
+      shutterQueue(shutBladesVal, shutAngleVal);  // return shutter map to normal
       Serial.print("Leaving Eiki / P26 FREEZE/BURN mode... motSingle = ");
       Serial.println(motSingle);
       if (motSingle == 2 || motSingle == 3) motSingle = 0;  // turn off single flag if we're leaving Eiki freeze-frame mode or P26 open shutter mode
       motSinglePrev = motSingle;
       buttonAstate = 0;
-      updateShutterMap(shutBladesVal, shutAngleVal);  // return shutter map to normal
+      shutterQueue(shutBladesVal, shutAngleVal);  // return shutter map to normal
       Serial.print("Leaving Eiki / P26 FREEZE/BURN mode... motSingle = ");
       Serial.println(motSingle);
     }
@@ -976,7 +821,7 @@ void released(Button2& btn) {
       if (motSingle == 2 || motSingle == 3) motSingle = 0;  // turn off single flag if we're leaving Eiki freeze-frame mode or P26 open shutter mode
       motSinglePrev = motSingle;
       buttonBstate = 0;
-      updateShutterMap(shutBladesVal, shutAngleVal);  // return shutter map to normal
+      shutterQueue(shutBladesVal, shutAngleVal);  // return shutter map to normal
       Serial.print("Leaving Eiki / P26 FREEZE/BURN mode... motSingle = ");
       Serial.println(motSingle);
     }

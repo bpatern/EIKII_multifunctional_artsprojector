@@ -5,6 +5,9 @@ volatile int motModeMidi;
 int musicMode = 0;
 
 static QueueHandle_t outCommanderQueue;
+static QueueHandle_t q_shutterBlade, q_shutterAngle, q_ledBright;
+static QueueHandle_t motPot, ledPot, shutBladePot, shutAnglePot, ;
+
 uint8_t sendingIndividualCommand = 0; //flag to indicate whether we're sending an individual command or the full data string. if 1, we send individual command, if 0 we send full data string. this is to prevent flooding the commander with the full data string when we're just trying to send a single command (like a shutter open/close command from the aux display)
 static intr_handle_t handle_console;
 
@@ -32,7 +35,6 @@ int receivedRecvdConfirm2;
 int receivedRecvdConfirm;
 
 
-int ledSlewVal = 0;
 int ledSlewValOld;
 int ledSlewMin = 0;      // the minumum slew value when knob is turned down (msec).
 int ledSlewMax = 10000;  // the max slew value when knob is turned up (msec).
@@ -42,20 +44,15 @@ int motSlewValOld;
 int motSlewMin = 0;      // the minumum slew value when knob is turned down (msec).
 int motSlewMax = 10000;  // the max slew value when knob is turned up (msec).
 
-int shutBladesPotVal;
-int shutBladesVal;
+
 int shutBladesValOld;
-int shutAnglePotVal;
-float shutAngleVal;
 float shutAngleValOld;
 
 volatile int as5047absAngle;
 
 // UI VARS (could also be updated by remote control in future. Put these in a struct for easier radiolib management?)
-int motPotVal = 0;  // current value of Motor pot (not necessarily the current speed since we might be ramping toward this value)
 int motPotFPS = 1;  // current requested FPS based on motPotVal and scaling
 int motPotFPSOld = 0;
-int ledPotVal = 0;  // current value of LED pot (not necessarily the current LED brightness since we might be fading or strobing)
 int ledPotValOld;
 
 // LED VARS //

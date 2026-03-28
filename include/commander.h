@@ -225,13 +225,11 @@ void midiControlTakeover() {
       sendConfirmation('$');
 
     } else if (c == '*') {
-      updateShutterMap(0, 0.0);  // force open shutter for single framing
 
       motExtSwitch = 0;
       motMode = 0;
       receivedRecvdConfirm = 1;
       sendConfirmation('$');
-      updateShutterMap(shutBladesVal, shutAngleVal);
 
     } else if (c == 'E') {
       motExtSwitch = -1;

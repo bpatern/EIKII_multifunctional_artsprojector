@@ -67,6 +67,23 @@ elapsedMicros framePeriod, countPeriod;
 elapsedMillis timerUI, serialTimerUI, motSingleRunTimer, motModeMidiTimer, midiParseTimer; // MS since last time we checked/updated the user interface
 
 void createTasks() {
+
+        if(enableShutter == 1)
+    {
+        q_shutterBlade = xQueueCreate(20, sizeof(int*));
+        q_shutterAngle = xQueueCreate(20, sizeof(float*)); //shutter angle is never a float in the program which is why i changed it
+            xTaskCreatePinnedToCore(
+                updateShutterMap,
+                "updateShutter",
+                3000,
+                NULL,
+                12,
+                NULL,
+                1
+            );
+
+    }
+
     xTaskCreatePinnedToCore(
     serialReadTask,
     "serialReadTask",
@@ -77,12 +94,14 @@ void createTasks() {
     1
   );
 
+  motPot = xQueueCreate(2, sizeof(int*));
+    ledPot = xQueueCreate(2, sizeof(int*));
   xTaskCreatePinnedToCore(
     readUI,
     "readUI",
     5000,
     NULL,
-    15,
+    16,
     NULL,
     1
   );
@@ -90,7 +109,7 @@ void createTasks() {
   xTaskCreatePinnedToCore(
     updateMotor,
     "updateMotor",
-    5000,
+    4000,
     NULL,
     10,
     NULL,
@@ -110,7 +129,7 @@ void createTasks() {
       xTaskCreatePinnedToCore(
     as5047MagCheck,
     "as5047MagCheck",
-    5000,
+    3000,
     NULL,
     12,
     NULL,
@@ -120,22 +139,28 @@ void createTasks() {
         xTaskCreatePinnedToCore(
     calcFPS,
     "calcFPS",
-    5000,
+    3000,
     NULL,
     12,
     NULL,
     1
   );
 
+
+ledBright = xQueueCreate(4, sizeof(int*));
           xTaskCreatePinnedToCore(
     readEncoder,
     "readEncoder",
-    5000,
+    3000,
     NULL,
     20,
     NULL,
     0
+    );
+    
 
+
+    
         // xTaskCreatePinnedToCore(
     // pcISRCORE,
     // "pcISR",
@@ -144,7 +169,7 @@ void createTasks() {
     // 24,
     // &pcISR,
     // 0);
-  );
+
 }
 void interfaceConfig()
 {
@@ -241,7 +266,7 @@ void motorConfig() {
 }
 
 void digitalShutterConfig() {
-      updateShutterMap(shutterBlades, shutterAngle);  //generate initial shutter map ... (1, 0.05 = 1 PPF and narrowest shutter angle)
+    //   shutterQueue(shutterBlades, shutterAngle);  //generate initial shutter map ... (1, 0.05 = 1 PPF and narrowest shutter angle)
     
 }
 
