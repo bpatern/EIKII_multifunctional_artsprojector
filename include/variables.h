@@ -5,14 +5,37 @@ volatile int motModeMidi;
 int musicMode = 0;
 
 static QueueHandle_t outCommanderQueue;
-static QueueHandle_t q_shutterBlade, q_shutterAngle, q_ledBright;
+static QueueHandle_t q_shutterBlade, q_shutterAngle, q_ledBright, q_motSpeed, q_spiRead, q_actualShutterMap;
 static QueueHandle_t motPot, ledPot, shutBladePot, shutAnglePot;
+static QueueHandle_t q_intr1_hasRun, q_intr2_hasRun, q_debugShutterPosition;
 // static QueueHandle_t q_shutterMap;
-static RingbufHandle_t q_shutterMap;
+static QueueHandle_t q_shutterMap;
     static SemaphoreHandle_t encoderMutex = NULL; // create a mutex to protect the encoder count variable that is updated in the ISR and read in the main loop
+        static SemaphoreHandle_t spiRead = NULL; // create a mutex to protect the encoder count variable that is updated in the ISR and read in the main loop
+
 static SemaphoreHandle_t controlLock = NULL;
     portMUX_TYPE shutterFunctionLock = portMUX_INITIALIZER_UNLOCKED;  // create a spinlock to protect the shutter function that is called in the ISR and uses shared variables
+ static SemaphoreHandle_t shutterMapping = NULL;
+ portMUX_TYPE shutterMappingLock = portMUX_INITIALIZER_UNLOCKED;  // create a spinlock to protect the shutter mapping function that is called in the shutter map update task and uses shared variables
 
+   BaseType_t xHigherPriorityTaskWoken = pdTRUE;
+
+static pcnt_config_t as5047_config = {
+        .pulse_gpio_num = 16,
+        .ctrl_gpio_num = 4,
+        
+        .lctrl_mode = PCNT_MODE_KEEP,
+        .hctrl_mode = PCNT_MODE_KEEP,
+        .pos_mode = PCNT_COUNT_INC,
+        .neg_mode = PCNT_COUNT_DEC,
+
+        //shutter blade total pulses
+        .counter_h_lim = 100,
+        .counter_l_lim = -100,
+
+        .unit = (pcnt_unit_t) 0,
+        .channel = PCNT_CHANNEL_0,
+    };
 
 
 uint8_t sendingIndividualCommand = 0; //flag to indicate whether we're sending an individual command or the full data string. if 1, we send individual command, if 0 we send full data string. this is to prevent flooding the commander with the full data string when we're just trying to send a single command (like a shutter open/close command from the aux display)
@@ -53,12 +76,21 @@ int motSlewMax = 10000;  // the max slew value when knob is turned up (msec).
 
 
 
-volatile int as5047absAngle;
+
+
+static int as5047absAngle;
 
 // UI VARS (could also be updated by remote control in future. Put these in a struct for easier radiolib management?)
 int motPotFPS = 1;  // current requested FPS based on motPotVal and scaling
 int motPotFPSOld = 0;
 int ledPotValOld;
+
+static int motPotVal;  // current value of Motor pot (not necessarily the current speed since we might be ramping toward this value)
+static int ledPotVal;  // current value of LED pot (not necessarily the current LED brightness since we might be fading or strobing)
+static int shutBladesPotVal;
+static int shutAnglePotVal;
+static int shutBladesVal;
+static float shutAngleVal;
 
 // LED VARS //
 int LedDimMode = 1;               // 0 = current-controlled dimming (NOT YET IMPLEMENTED!), 1 = PWM dimming
@@ -68,6 +100,11 @@ float safeSpeedMult = 0.4;        // multiplier to use in "safe mode" to lower l
 const int ledBrightRes = 12;      // bits of resolution for LED dimming
 const int ledBrightFreq = 18000;  // PWM frequency (500Hz is published max for H6cc LED driver, 770Hz is closer to shutter segment period, 1000 seems to work best)
 const int ledChannel = 0;         // ESP32 LEDC channel number. Pairs share settings (0/1, 2/3, 4/5...) so skip one to insure your settings work!
+   static int intr1_hasRun = 0;
+   static int intr2_hasRun = 0;
+   static int debugShutterPosition;
+
+
 
 // MOTOR VARS We are using ESP32 LEDC to drive the RC motor ESC via 1000-2000uS PWM @50Hz (standard servo format)
 int motMode = 0;               // motor run mode (-1, 0, 1)
@@ -91,9 +128,7 @@ static int encCount;
 //   static int encCountOld;
 static int encCountOld;                              // old rotary count
 static int EncIndexCount;
- volatile bool shutterMap[countsPerFrame];  // array to hold the on/off state of the shutter for each count position
 
- static size_t *shutMapIRQ;
 
 
 

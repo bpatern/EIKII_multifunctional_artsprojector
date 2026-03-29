@@ -5,15 +5,14 @@ int FPSAvgReadIndex = 0;           // the index of the current reading
 float FPSAvgTotal = 0;             // total of all readings
 
 // Ramp library setup
-rampInt motAvg; // ramp object for motor speed slewing
-rampInt ledAvg; // ramp object for LED brightness slewing
+
 // Simple Kalman Filter Library Setup
 // see tuning advice here: https://www.mathworks.com/help/fusion/ug/tuning-kalman-filter-to-improve-state-estimation.html
 // and this playlist: https://www.youtube.com/watch?v=CaCcOwJPytQ&list=PLX2gX-ftPVXU3oUFNATxGXY90AULiqnWT
 float kalmanMEA = 2;   // "measurement noise estimate" (larger = we assmume there is more noise/jitter in input)
 float kalmanQ = 0.010; // "Process Noise" AKA "gain" (smaller = more smoothing but more latency)
 
-SimpleKalmanFilter motPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
+static SimpleKalmanFilter motPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
 SimpleKalmanFilter ledPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
 
 #if (enableSlewPots) // if these pots are enabled in the config file,
@@ -22,8 +21,8 @@ SimpleKalmanFilter ledSlewPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
 #endif // now we check for the next option, which asks about the
 
 #if (enableShutterPots) // are you using shutter blade angle controls?
-SimpleKalmanFilter shutBladesPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-SimpleKalmanFilter shutAnglePotKalman(kalmanMEA, kalmanMEA, kalmanQ);
+static SimpleKalmanFilter shutBladesPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
+static SimpleKalmanFilter shutAnglePotKalman(kalmanMEA, kalmanMEA, kalmanQ);
 #endif
 
 #if (enableButtons)
@@ -52,7 +51,7 @@ Adafruit_NeoPixel pixels(NUMPIXELS, NeoPixelPin, NEO_RGB + NEO_KHZ800);
 // Start connection to the AS5047sensor.
 AS5X47 as5047(EncCSN);
 // will be used to read data from the magnetic encoder
-ReadDataFrame readDataFrame;
+static ReadDataFrame readDataFrame;
 int as5047MagOK = 0; // status of magnet near AS5047 sensor
 int as5047MagOK_old = 0;
 
@@ -68,23 +67,20 @@ elapsedMillis timerUI, serialTimerUI, motSingleRunTimer, motModeMidiTimer, midiP
 
 void createTasks() {
 
-        if(enableShutter == 1)
-    {
-        q_shutterBlade = xQueueCreate(20, sizeof(int*));
-        q_shutterAngle = xQueueCreate(20, sizeof(float*)); //shutter angle is never a float in the program which is why i changed it
-        q_ledBright = xQueueCreate(20, sizeof(int*));
-        q_shutterMap = xRingbufferCreate(100, RINGBUF_TYPE_NOSPLIT);
-            xTaskCreatePinnedToCore(
-                updateShutterMap,
-                "updateShutter",
-                3000,
-                NULL,
-                12,
-                NULL,
-                1
-            );
 
-    }
+        q_shutterBlade = xQueueCreate(36, sizeof(int*));
+        q_shutterAngle = xQueueCreate(36, sizeof(float*)); //shutter angle is never a float in the program which is why i changed it
+        q_ledBright = xQueueCreate(36, sizeof(int*));
+        q_motSpeed = xQueueCreate(36, sizeof(int*));
+        q_shutterMap = xQueueCreate(100, sizeof(bool) * countsPerFrame);
+        q_spiRead = xQueueCreate(10, sizeof(int*)); // queue used as a binary semaphore to manage access to SPI reads from AS5047 sensor. we use a queue instead of a semaphore because we want the option to add more data to this queue in the future if needed without having to change the type of synchronization primitive we're using. currently we just send an int (with value 0) to this queue whenever a task wants to read from the AS5047, and then receive from the queue after the read is done to allow other tasks to read from the AS5047.
+        shutterMapping = xSemaphoreCreateMutex();
+        xSemaphoreGive(shutterMapping); // give the semaphore so that it's available for the first task to take. after that, any task that wants to update the shutter map will take this semaphore before updating and give it back after it's done, which ensures that only one task can update the shutter map at a time and prevents conflicts between tasks. this is important because updating the shutter map involves multiple steps and we want to make sure those steps are not interrupted by another task trying to update the shutter map at the same time, which could lead to inconsistent or corrupted shutter map data being sent to the LED task and used in the LED ISR.
+        q_actualShutterMap = xQueueCreate(1, sizeof(int)); // this queue is used to send the actual shutter map (as opposed to the desired shutter map) to the LED task so that it can update the LED brightness accordingly in real time based on how many blades are actually open
+        q_intr1_hasRun = xQueueCreate(1, sizeof(int)); // this queue is used to send a value to the shutter task to indicate that the LED ISR has run at least once, which we use as a signal to start sending the shutter map to the LED task via its queue
+        q_intr2_hasRun = xQueueCreate(1, sizeof(int)); // this queue is used to send a value to the shutter task to indicate that the encoder pin change ISR has run at least once, which we use as a signal to start sending the actual shutter map position to the LED task via its queue so that the LED task can update the LED brightness accordingly in real time based on how many blades are actually open
+        q_debugShutterPosition = xQueueCreate(1, sizeof(int)); // this queue is used to send the current shutter position to the debug task so that it can be printed to the serial monitor for debugging purposes
+
 
     xTaskCreatePinnedToCore(
     serialReadTask,
@@ -96,46 +92,38 @@ void createTasks() {
     1
   );
 
-  motPot = xQueueCreate(2, sizeof(int*));
-    ledPot = xQueueCreate(2, sizeof(int*));
+  motPot = xQueueCreate(1, sizeof(int*));
+    ledPot = xQueueCreate(1, sizeof(int*));
   xTaskCreatePinnedToCore(
     readUI,
     "readUI",
-    5000,
+    8000,
     NULL,
     16,
     NULL,
     1
   );
 
-  xTaskCreatePinnedToCore(
-    updateMotor,
-    "updateMotor",
-    4000,
-    NULL,
-    10,
-    NULL,
-    1
-  );
 
-    xTaskCreatePinnedToCore(
-        updateLed,
-        "updateLed",
-        5000,
-        NULL,
-        12,
-    NULL,
-    1
-  );
+
+//     xTaskCreatePinnedToCore(
+//         updateLed,
+//         "updateLed",
+//         8000,
+//         NULL,
+//         15,
+//     NULL,
+//     1
+//   );
 
       xTaskCreatePinnedToCore(
     as5047MagCheck,
     "as5047MagCheck",
     3000,
     NULL,
-    12,
+    10,
     NULL,
-    0
+    1
   );
 
         xTaskCreatePinnedToCore(
@@ -148,17 +136,51 @@ void createTasks() {
     1
   );
 
+              xTaskCreatePinnedToCore(
+                updateShutterMap,
+                "updateShutter",
+                8000,
+                NULL,
+                12,
+                NULL,
+                1
+            );
+
+    
+
 
 
           xTaskCreatePinnedToCore(
     readEncoder,
     "readEncoder",
-    3000,
+    6000,
     NULL,
-    20,
+    16,
     NULL,
     0
     );
+
+      xTaskCreatePinnedToCore(
+    updateMotor,
+    "updateMotor",
+    4000,
+    NULL,
+    14,
+    NULL,
+    1
+  );
+
+  if (debug==1 ) {
+    xTaskCreatePinnedToCore(
+        debugTask,
+        "debugTask",
+        5000,
+        NULL,
+        12,
+        NULL,
+        1
+    );
+  }
     
 
 
@@ -177,6 +199,7 @@ void interfaceConfig()
 {
 
     controlLock = xSemaphoreCreateMutex();
+    xSemaphoreGive(controlLock); // give the semaphore so that it's available for the first task to take. after that, any task that wants to update shared variables will take this semaphore before updating and give it back after it's done, which ensures that only one task can update shared variables at a time and prevents conflicts between tasks.
     if (enableStatusLed)
     {
           pixels.begin();                // INITIALIZE NeoPixel object
@@ -200,13 +223,13 @@ void interfaceConfig()
     {
         buttonA.begin(buttonApin, INPUT_PULLUP, true);
         buttonA.setDebounceTime(20);
-        buttonA.setPressedHandler(pressed);
-        buttonA.setReleasedHandler(released);
+        // buttonA.setPressedHandler(pressed);
+        // buttonA.setReleasedHandler(released);
 
         buttonB.begin(buttonBpin, INPUT_PULLUP, true);
         buttonB.setDebounceTime(20);
-        buttonB.setPressedHandler(pressed);
-        buttonB.setReleasedHandler(released);
+        // buttonB.setPressedHandler(pressed);
+        // buttonB.setReleasedHandler(released);
 
         if (digitalRead(buttonApin) == 0)
         {
@@ -232,51 +255,57 @@ void as5047Config()
     //you can decide when to unlock that door
 
     
-    encoderMutex = xSemaphoreCreateMutex();
 
-    gpio_config_t index_conf = {
-        .pin_bit_mask = (1ULL << EncI),
+        // attachInterrupt(EncA, pinChangeISR, CHANGE);
+    // attachInterrupt(EncB, pinChangeISR, CHANGE);
+
+
+
+
+
+
+    static gpio_config_t index_conf = {
+        .pin_bit_mask = 1ULL << EncI,
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
+        .intr_type = GPIO_INTR_POSEDGE
     };
     gpio_config(&index_conf);
 
-    gpio_config_t enc_conf = {
-        .pin_bit_mask = (1ULL << EncA) | (1ULL << EncB),
+    static gpio_config_t encA_conf = {
+        .pin_bit_mask = 1ULL << EncA, // we can set both encoder pins to trigger the same interrupt since we read both pin states in the ISR and can determine the direction and amount of rotation based on those states
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_ANYEDGE
+        .intr_type = GPIO_INTR_ANYEDGE // we want to trigger on both edges to ensure we catch every single change in the encoder state, which allows us to have more accurate readings of the encoder position and speed, which is crucial for the performance of the system. if we only triggered on one edge, we would only be able to detect half of the changes in the encoder state, which would lead to less accurate readings and potentially cause issues with the motor control and shutter timing.
     };
-    gpio_config(&enc_conf);
+    gpio_config(&encA_conf);
+
+    static gpio_config_t encB_conf = {
+        .pin_bit_mask = 1ULL << EncB, // we can set both encoder pins to trigger the same interrupt since we read both pin states in the ISR and can determine the direction and amount of rotation based on those states
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_ANYEDGE // we want to trigger on both edges to ensure we catch every single change in the encoder state, which allows us to have more accurate readings of the encoder position and speed, which is crucial for the performance of the system. if we only triggered on one edge, we would only be able to detect half of the changes in the encoder state, which would lead to less accurate readings and potentially cause issues with the motor control and shutter timing.
+    };
+    gpio_config(&encB_conf);
+
 gpio_install_isr_service(0); // install GPIO ISR service with default configuration
-gpio_isr_handler_add((gpio_num_t)EncA, pinChangeISR, NULL); // attach the interrupt service routine to the GPIO pin for channel A
-gpio_isr_handler_add((gpio_num_t)EncB, pinChangeISR, NULL); // attach the interrupt service routine to the GPIO pin for channel B
-gpio_isr_handler_add((gpio_num_t)EncI, indexISR, NULL); // attach the interrupt service routine to the GPIO pin for index
-    pcnt_config_t as5047_config = {
-        .pulse_gpio_num = (gpio_num_t) EncA,
-        .ctrl_gpio_num = (gpio_num_t) EncB,
-        
-        .lctrl_mode = PCNT_MODE_KEEP,
-        .hctrl_mode = PCNT_MODE_REVERSE,
-        .pos_mode = PCNT_COUNT_INC,
-        .neg_mode = PCNT_COUNT_DEC,
-
-        //shutter blade total pulses
-        .counter_h_lim = 100,
-        .counter_l_lim = -100,
-
-        .unit = (pcnt_unit_t) 0,
-        .channel = PCNT_CHANNEL_0,
-    };
-
-    pcnt_unit_config(&as5047_config);
-    pcnt_set_filter_value((pcnt_unit_t)0, 10);
-    pcnt_counter_pause((pcnt_unit_t)0);
-    pcnt_counter_clear((pcnt_unit_t)0);
+ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)EncA, pinChangeISR, NULL)); // attach the interrupt service routine to the GPIO pin for channel A
+ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)EncB, pinChangeISR, NULL)); // attach the interrupt service routine to the GPIO pin for channel B
+ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)EncI, indexISR, NULL)); // attach the interrupt service routine to the GPIO pin for index
     
+          encoderMutex = xSemaphoreCreateMutex();
+          xSemaphoreGive(encoderMutex); // give the semaphore so that it's available for the first interrupt to take. after that, the interrupt will give it back after it's done updating shared variables, and then other interrupts can take it again when they need to update shared variables. this ensures that only one interrupt can update shared variables at a time, which prevents
+            spiRead = xSemaphoreCreateMutex();
+            xSemaphoreGive(spiRead); // give the semaphore so that it's available for the first SPI read. after that, any task that wants to read from the AS5047 will take this semaphore before reading and give it back after it's done, which ensures that only one task can read from the AS5047 at a time and prevents conflicts on the SPI bus.
+//       if (enc.init()) {
+//     Serial.println("Encoder Initialization OK");
+//   } else {
+//     Serial.println("Encoder Initialization Failed");
+//     while(1);
+//   }
 
 
     abOld = encCount = encCountOld = 0;
@@ -295,10 +324,6 @@ gpio_isr_handler_add((gpio_num_t)EncI, indexISR, NULL); // attach the interrupt 
     zposl.values.compLerrorEn = 1;
     zposl.values.compHerrorEn = 1;
     as5047.writeZeroPosition(zposm, zposl);
-
-    pcnt_counter_resume((pcnt_unit_t)0);
-
-      fixCount();                                     // at startup we don't know the absolute position via ABI, so ask SPI
 
 }
 
@@ -369,17 +394,17 @@ xTaskCreatePinnedToCore(
     "serial2RX",
     1024,
     NULL,
-    16, //this should be sort of high. note to self 2 check and adj +stack size with goated freertos debug toolz
+    9, //this should be sort of high. note to self 2 check and adj +stack size with goated freertos debug toolz
     NULL,
-    0 
+    1
 );
 
 xTaskCreatePinnedToCore(
     serial2tx,
     "serial2tx",
-    11520,
+    1024,
     NULL,
-    20,
+    7,
     NULL,
     1
 );

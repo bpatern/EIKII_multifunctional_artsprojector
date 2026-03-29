@@ -4,6 +4,8 @@ void recvWithStartEndMarkers();
 void midiParser();
 void uartConfig();
 void serialReadTask(void *pvparemeters);
+void ESC_send_ACK();
+void ESC_ser_write(unsigned char x);
 
 void createTasks();
 void serial2RX(void * parameter);
@@ -28,6 +30,7 @@ void updateStatusLED(int x, int R, int G, int B);
 void IRAM_ATTR pinChangeISR(void *arg);
 void IRAM_ATTR indexISR(void *arg);
 void IRAM_ATTR send_LEDC();
+void debugTask(void *pvParameters);
 
 double mapf(double x, double in_min, double in_max, double out_min, double out_max);
 float fscale(float originalMin, float originalMax, float newBegin, float newEnd, float inputValue, float curve);

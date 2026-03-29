@@ -40,12 +40,14 @@ int ledMax = 2650; //set this at 4096 first, observe voltage where led is on. do
 const float safeMin = 0.6;       // The minimum brightness in safe mode when running very slowly / stopped
 
 // Debug messages. Use only one. (Warning: debug messages might cause loss of shutter sync. Turn off if not needed.)
-int debugEncoder = 0;   // serial messages for encoder count and shutterMap value
-int debugUI = 0;        // serial messages for user interface inputs (pots, buttons, switches)/Users/brandonpaterno/Downloads/film_core_8mm_2in_np.stl
-int debugFrames = 0;    // serial messages for frame count and FPS
-int debugFPSgraph = 0;  // serial messages for only FPSrealAvg (for Arduino IDE serial plotter)
-int debugMotor = 0;     // serial messages for motor info
-int debugLed = 0;       // serial messages for LED info (LED pot val, safe multiplier, computed brightness, shutter blades and angle)
+
+static int debug = 1;
+static int debugEncoder = 0;   // serial messages for encoder count and shutterMap value
+static int debugUI = 0;        // serial messages for user interface inputs (pots, buttons, switches)
+static int debugFrames = 0;    // serial messages for frame count and FPS
+static int debugFPSgraph = 0;  // serial messages for only FPSrealAvg (for Arduino IDE serial plotter)
+static int debugMotor = 0;     // serial messages for motor info
+static int debugLed = 0;       // serial messages for LED info (LED pot val, safe multiplier, computed brightness, shutter blades and angle)
 
 
 int motMinUS = 1770.12;       // motor pulse length at -24fps (set this by testing)

@@ -138,11 +138,7 @@ void externalcontrol() {
         musicMode = 1;  //midi
         Serial.println("music mode on");
       } else if (c == 'z') {
-        static String ledValRecvdStr = Serial.readStringUntil('z');
-       
-        ledBright = ledValRecvdStr.toInt();
 
-        send_LEDC();
       }
     
   }

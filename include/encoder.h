@@ -8,200 +8,227 @@
 //     xQueueSend(q_shutterAngle, &shutterAngle, portMAX_DELAY);
 // }
 
+void readEncoder(void *pvParameters)
+{
+    static int ang;
+    for (;;)
+    {
+        if (xSemaphoreTake(spiRead, portMAX_DELAY) == pdTRUE)
+        {
+        xQueueReset(q_spiRead); // clear the queue to ensure we don't have old readings sitting in there
+        ang = map(as5047.readAngle(), 0, 360, 0, 100);
+        xQueueSend(q_spiRead, &ang, sizeof(ang)); // send updated shutter map to shutter task via queue
+        // vTaskDelay(10 / portTICK_PERIOD_MS);
+        xSemaphoreGive(spiRead); // give the semaphore back after updating shared variables
+        vTaskDelay(20 / portTICK_PERIOD_MS); // adjust this delay as needed to control the rate of reading the encoder and updating the shutter map. if we're seeing performance issues, we might want to increase this delay to reduce the frequency of SPI reads and shutter map updates.
 
-void readEncoder(void *pvParameters) {
-
-  for (;;)
-  {
-  as5047absAngle = map(as5047.readAngle(), 0, 360, 0, 100);
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-  }
+        }
+    }
 }
 
-void fixCount() {
-  encCount = map(as5047.readAngle(), 0, 360, 0, 100);
-  Serial.println("   (Updated count via SPI)");
+void fixCount()
+{
+    encCount = map(as5047.readAngle(), 0, 360, 0, 100);
+    Serial.println("   (Updated count via SPI)");
 }
 
 // fill shutterMap array with boolean values to control LED state at each position of shutter rotation
-void updateShutterMap(void * parameter) { //move to core 0 with related interrupts
- int sB = 0;
- float sA = 0;
+void updateShutterMap(void *parameter)
+{ // move to core 0 with related interrupts
 
-    for(;;){
-
-    xQueueReceive(q_shutterBlade, &sB, portMAX_DELAY);
-    xQueueReceive(q_shutterAngle, &sA, portMAX_DELAY);
-  //Serial.print("Update ShutterMap");
-  // shutterBlades: number of virtual shutter blades (must be > 0)
-  // shutterAngle: ratio between on/off for each shutter blade segment (0.5 = 180d)
-  if (sB < 1) {
-    sB = 1;          // it would break if set to 0
-  sA = constrain(sA, 0.0, 1.0);  // make sure it's 0-1
-  }
-  for (int myBlade = 0; myBlade < sB; myBlade++) {
-    int countOffset = myBlade * (countsPerFrame / sB);
-    for (int myCount = 0; myCount < countsPerFrame / sB; myCount++) {
-      if (myCount < countsPerFrame / sB * (1.0 - sA)) {
-        // shutterMap[myCount + countOffset] = 0;
-        xRingbufferSend(q_shutterMap, &"0", sizeof(shutterMap), portMAX_DELAY);  // send updated shutter map to shutter task via queue
-
-      } else {
-        // shutterMap[myCount + countOffset] = 1;
-        xRingbufferSend(q_shutterMap, &"1", sizeof(shutterMap), portMAX_DELAY);  // send updated shutter map to shutter task via queue
+        static int shutBladesVal = 0;
+    static float shutAngleVal = 0;
+     static bool  *shutterMap[countsPerFrame];  // array to hold the on/off state of the shutter for each count position
 
 
-      }
-
-    }
-  }
-}
-}
-
-void IRAM_ATTR indexISR(void *arg) {
-
-    if (xSemaphoreTakeFromISR(encoderMutex, NULL) == pdTRUE) {
-        EncIndexCount = 1;
-        encPos = 0;
-        encCountOld = 0;
-        xSemaphoreGiveFromISR(encoderMutex, NULL);  // give the semaphore back after updating shared variables}
-    }
-}
-
-void IRAM_ATTR pinChangeISR(void *arg) {
-    //first store last value
-
-  static int encCount;                        // current rotary count
-
-
-  if (xSemaphoreTakeFromISR(encoderMutex, NULL) == pdTRUE) {  // take the semaphore to ensure exclusive access to shared variables
-
-    taskENTER_CRITICAL_ISR(&shutterFunctionLock); //we are in the real meat + potatoes
-    //this makes sure that this interrupt is seen through
-
-
-  //check for changes
-    pcnt_get_counter_value((pcnt_unit_t)0, encPos);  // read the current count from the PCNT unit
-
-
-  //since we've read the encoder again, the getTicks value could be different than what we stored in encCountOld before taking a new reading.
-//   if (encPos > encCountOld) {
-  if (encPos > 0) {
-
-    //use this little function to see if we are going frowards or backwards. for example,
-    //if encCountOld is 75 and then enc.getTicks reads 76, then enc.getTicks has a greater value
-    //it means we are going forwards. 76-75 = 1
-    //if its the same 75-75 
-    //then it will be 0! and we are likely weither not moving OR the interrupt somehow has been running without the sensor movement.
-
-    //   //     // at index
-    if (EncIndexCount == 1) {  // reset counter on 'middle" transition during index condition
-
-    //internal frame count should only change at index pin trigger. so, we add a frame to that integer with the handy ++
-      frame++;
-
-      //this takes care of fps calculation (for now)
-      FPSframe = 1000000.0 / framePeriod;  // update FPS calc based on period between each frame
-      framePeriod = 0;
-    encCount = 0;
-
-      pcnt_counter_clear((pcnt_unit_t)0);  // reset counter to zero since because the counter would want to keep increasing past 100
-    } 
-    //but if the index pin hasnt been triggered, we run an alternative function
-    else 
+    for (;;)
     {
-      // normal forwards count
-      FPScount = 10000.0 / countPeriod;  // update FPS calc based on period between the 100 encoder counts
-      countPeriod = 0;
-      motModeReal = 1;  // mark that we're running forwards
-    }
-    //enccount is a "true" representation of the virtual shutter blades since it rolls over and 
-    encCount++;
-    // this handles the ca
-    if (encCount > countsPerFrame - 1) {
-      encCount = 0;
-    }
+        // if (xSemaphoreTake(shutterMapping, portMAX_DELAY) == pdTRUE)
+        { // take the semaphore to ensure exclusive access to shared variables
+            // Serial.println("Updating Shutter Map");
+            #if (enableSlewPots)
+  motSlewVal = motSlewPotKalman.updateEstimate(analogRead(motSlewPotPin));
+  // delay(2);
+  ledSlewVal = ledSlewPotKalman.updateEstimate(analogRead(ledSlewPotPin));
+  // delay(2);
+#endif
 
-    //this is the backwards scenario. 
-    //like the previous example, if 74 is the value gotten from enc.getTicks(), then 74-75(the hypothetical value in encCountOld) is -1
-    //now we know we're going backwards
-  } else if (encPos < 0){
-    //   //     // moving backwards ...
-    if (EncIndexCount == 1) {  // reset counter on 'middle" transition during index condition
-      // at index
-      // count = 0;
-        frame--;
-
-
-      FPSframe = 1000000.0 / framePeriod;  // update FPS calc based on period between each frame
-      framePeriod = 0;
-    } else {
-      // normal backwards count
-      FPScount = 10000.0 / countPeriod;  // update FPS calc based on period between the 100 encoder counts
-      countPeriod = 0;
-      motModeReal = -1;  // mark that we're running backwards
-    }
-    encCount--;
-    // wrap around the circle instead of using negative steps
-    if (encCount < 0) {
-      encCount = countsPerFrame - 1;
-    }
-  }
-
-
-
-//   bool shutterState = map;  // copy shutter state to local variable in case it changes during the ISR execution (not possible?)
-//   if (shutterState != shutterStateOld) {  // only update LED if shutter state changes (not every step)
-//       // the next thing to happen is
-
-    send_LEDC();                          // actual update code is abstracted so it can be run in different contexts
-    //check led.h for the above function. when it is done, it will return here!
+#if (enableShutterPots && enableShutter)
+  if (musicMode == 0) {
+    shutBladesPotVal = shutBladesPotKalman.updateEstimate(analogRead(shutBladesPotPin));
     
-//   } else if (shutterState == shutterStateOld)
-//   {
-
-//   }
-//   shutterStateOld = shutterState;  // store to global variable for next time
-
-
-    taskEXIT_CRITICAL_ISR(&shutterFunctionLock); //exit critical section
-    xSemaphoreGiveFromISR(encoderMutex, NULL);  // give the semaphore back after updating shared variables
+    // delay(2);
+  } else if (musicMode == 1) {
+    shutBladesPotVal = map(CC2ProjBlades, 0, 100, 0, 4095);
+    //inject values during Music Mode
   }
-
-}
-
-
-// send info to the LEDC peripheral to update LED PWM (abstracted here because it's called from loop or ISR)
-
-
-
-// check for encoder magnet proximity
-void as5047MagCheck(void *pvParameters) { for(;;) {
-
-  // read magnet AGC data from sensor registers
-  readDataFrame = as5047.readRegister(DIAGAGC_REG);
-  Diaagc diaagc;
-  diaagc.raw = readDataFrame.values.data;
-  //Serial.println(diaagc.values.magl);
-
-  // check result for magnet errors and update global var
-  if (diaagc.values.magh || diaagc.values.magl) {
-    as5047MagOK = 0;
+  shutAnglePotVal = shutAnglePotKalman.updateEstimate(analogRead(shutAnglePotPin));
+  // delay(2);
+  // using custom scaling for shutBladesPotVal to make control feel right
+  if (shutBladesPotVal < 800) {
+    shutBladesVal = 1;
+  } else if (shutBladesPotVal < 2500) {
+    shutBladesVal = 2;
   } else {
-    as5047MagOK = 1;
+    shutBladesVal = 3;
+  }
+    //   xQueueSend(q_shutterBlade, &shutBladesVal, 5);  // send shutter blade pot value to shutter task via queue  
+
+  shutAngleVal = mapf(shutAnglePotVal, 0, 4090, 0.1, 1.0);  // map ADC input to range of shutter angle
+  shutAngleVal = constrain(shutAngleVal, 0.1, 1.0); 
+    //   xQueueSend(q_shutterAngle, &shutAngleVal, 5);  // send shutter angle pot value to shutter task via queue
+        // clip values
+#endif
+            // xQueueReceive(q_shutterBlade, &sB, portMAX_DELAY);
+            // xQueueReceive(q_shutterAngle, &sA, portMAX_DELAY);
+            Serial.println("Update ShutterMap");
+            //  shutterBlades: number of virtual shutter blades (must be > 0)
+            //  shutterAngle: ratio between on/off for each shutter blade segment (0.5 = 180d)
+            if (shutBladesVal < 1)
+            {
+                shutBladesVal = 1;                       // it would break if set to 0
+                shutAngleVal = constrain(shutAngleVal, 0.0, 1.0); // make sure it's 0-1
+            }
+            for (int myBlade = 0; myBlade < shutBladesVal; myBlade++)
+            {
+                int countOffset = myBlade * (countsPerFrame / shutBladesVal);
+                for (int myCount = 0; myCount < countsPerFrame / shutBladesVal; myCount++)
+                {
+                    if (myCount < countsPerFrame / shutBladesVal * (1.0 - shutAngleVal))
+                    {
+                        shutterMap[myCount + countOffset] = (bool*)false;
+                        // xQueueSend(q_shutterMap, &"0", sizeof(shutterMap)); // send updated shutter map to shutter task via queue
+                    }
+                    else
+                    {
+                        shutterMap[myCount + countOffset] = (bool*)true;
+                        // xQueueSend(q_shutterMap, &"1", sizeof(shutterMap)); // send updated shutter map to shutter task via queue
+                    }
+                }
+            }
+            xQueueSend(q_shutterMap, &shutterMap[countsPerFrame], sizeof(shutterMap)); // send updated shutter map to shutter task via queue
+
+            // xSemaphoreGive(shutterMapping); // give the semaphore back after updating shared variables
+        }
+    }
+}
+    void IRAM_ATTR indexISR(void *arg)
+    {
+
+        if (xSemaphoreTakeFromISR(spiRead, NULL) == pdTRUE)
+        //higher prio than readEncoder, but regardless it means we've hit the index and need to be reset
+        {
+            EncIndexCount = 1;
+
+            xSemaphoreGiveFromISR(spiRead, NULL); // give the semaphore back after updating shared variables}
+        }
+    }
+
+    void IRAM_ATTR pinChangeISR(void *arg)
+    {
+
+        // first store last value
+
+        static int encCount; // current rotary count
+        static int encCountOld; // previous rotary count, used to determine direction
+
+        if (xSemaphoreTakeFromISR(spiRead, &xHigherPriorityTaskWoken) == pdTRUE)
+        { // take the semaphore to ensure exclusive access to shared variables
+
+            taskENTER_CRITICAL_ISR(&shutterFunctionLock); // we are in the real meat + potatoes
+            // this makes sure that this interrupt is seen through
+                  if(debug)
+  {
+    intr1_hasRun++;
+  xQueueSendFromISR(q_intr1_hasRun, &intr1_hasRun, &xHigherPriorityTaskWoken);  // send a value to the shutter task to indicate that the LED ISR has run at least once, which we use as a signal to start sending the shutter map to the LED task via its queue
+
   }
 
-  // take action if global var has changed
-  if (as5047MagOK_old != as5047MagOK) {
-    if (as5047MagOK) {
-      Serial.println("Magnet OK");
-      fixCount();  // magnet is back after loss, so fix the count using SPI
-    } else {
-      Serial.println("Magnet ERROR");
-      fixCount();  // magnet is back after loss, so fix the count using SPI
+            encCountOld = encCount;
+            xQueueReceiveFromISR(q_spiRead, &encCount, &xHigherPriorityTaskWoken); // read the current count from the PCNT unit
+            
+            if (encCountOld < encCount)
+            {
+
+                if (EncIndexCount == 1)
+                { // reset counter on 'middle" transition during index condition
+                    frame++;
+                    FPSframe = 1000000.0 / framePeriod; // update FPS calc based on period between each frame
+                    framePeriod = 0;
+                    EncIndexCount = 0; // reset index count so we can detect the next index trigger
+                }
+                // but if the index pin hasnt been triggered, we run an alternative function
+                else
+                {
+                    FPScount = 10000.0 / countPeriod; // update FPS calc based on period between the 100 encoder counts
+                    countPeriod = 0;
+                    motModeReal = 1; // mark that we're running forwards
+                }
+            }
+            else if (encCountOld > encCount)
+            {
+                //   //     // moving backwards ...
+                if (EncIndexCount == 1)
+                {   // reset counter on 'middle" transition during index condition
+                    frame--;
+                    FPSframe = 1000000.0 / framePeriod; // update FPS calc based on period between each frame
+                    framePeriod = 0;
+                    EncIndexCount = 0; // reset index count so we can detect the next index trigger
+
+                }
+                else
+                {
+                    // normal backwards count
+                    FPScount = 10000.0 / countPeriod; // update FPS calc based on period between the 100 encoder counts
+                    countPeriod = 0;
+                    motModeReal = -1; // mark that we're running backwards
+                }
+            }
+            xQueueSendFromISR(q_actualShutterMap, &encCount, &xHigherPriorityTaskWoken); // read the current count from the PCNT unit again to ensure we have the most up-to-date value for any subsequent interrupts
+            send_LEDC(); // actual update code is abstracted so it can be run in different contexts
+
+            taskEXIT_CRITICAL_ISR(&shutterFunctionLock); // exit critical section
+            xSemaphoreGiveFromISR(spiRead, &xHigherPriorityTaskWoken);   // give the semaphore back after updating shared variables
+        }
     }
-    as5047MagOK_old = as5047MagOK;
-  }
-  vTaskDelay(100 / portTICK_PERIOD_MS);
-  }
-}
+
+    // send info to the LEDC peripheral to update LED PWM (abstracted here because it's called from loop or ISR)
+
+    // check for encoder magnet proximity
+    void as5047MagCheck(void *pvParameters)
+    {
+        for (;;)
+        {
+
+            // read magnet AGC data from sensor registers
+            readDataFrame = as5047.readRegister(DIAGAGC_REG);
+            Diaagc diaagc;
+            diaagc.raw = readDataFrame.values.data;
+            // Serial.println(diaagc.values.magl);
+
+            // check result for magnet errors and update global var
+            if (diaagc.values.magh || diaagc.values.magl)
+            {
+                as5047MagOK = 0;
+            }
+            else
+            {
+                as5047MagOK = 1;
+            }
+
+            // take action if global var has changed
+            if (as5047MagOK_old != as5047MagOK)
+            {
+                if (as5047MagOK)
+                {
+                    Serial.println("Magnet OK");
+                }
+                else
+                {
+                    Serial.println("Magnet ERROR");
+                }
+                as5047MagOK_old = as5047MagOK;
+            }
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+        }
+    }
