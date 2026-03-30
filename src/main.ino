@@ -15,8 +15,7 @@
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "esp_intr_alloc.h"
-
-
+#include "driver/timer.h"
 // Uncomment ONE of these to load preset configurations from the matching files
 #include "spectral_eiki.h"  // "Store projector-specific settings here"
 //#include "spectral_p26.h" // "Store projector-specific settings here"

@@ -13,6 +13,7 @@ static int shutterOn;
 static int ledWriteCount;
 static IRAM_ATTR int ledBright;
 static IRAM_ATTR int openCl;
+static IRAM_ATTR uint64_t ledWrite_period;
 
 
 void IRAM_ATTR send_LEDC()
@@ -31,5 +32,9 @@ void IRAM_ATTR send_LEDC()
         {
             ledcWrite(ledChannel, ledBright);
         }
+    
+    timer_pause(TIMER_GROUP_1, TIMER_0);
+    timer_get_counter_value(TIMER_GROUP_1, TIMER_0, &ledWrite_period);
+    timer_set_counter_value(TIMER_GROUP_1, TIMER_0, 0);
 
 }

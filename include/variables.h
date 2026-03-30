@@ -75,9 +75,9 @@ int motSlewMin = 0;      // the minumum slew value when knob is turned down (mse
 int motSlewMax = 10000;  // the max slew value when knob is turned up (msec).
 
 
-volatile bool shutterMap[150];
+// static uint32_t IRAM_ATTR shutterMap[150] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
-
+IRAM_ATTR uint32_t shutterMap[150];
 
 
 

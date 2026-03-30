@@ -1,43 +1,81 @@
-// void shutterQueue(void *pvParameters) {
-//     byte shutterBlades;
-//     float shutterAngle;
-//     for(;;) {
-//     xQueueReceive(q_shutterBlade, &shutterBlades, portMAX_DELAY);
-//     xQueueReceive(q_shutterAngle, &shutterAngle, portMAX_DELAY);
-//     xQueueSend(q_shutterBlade, &shutterBlades, portMAX_DELAY);
-//     xQueueSend(q_shutterAngle, &shutterAngle, portMAX_DELAY);
-// }
-     static IRAM_ATTR int shutterVal = 1;
-     static IRAM_ATTR int shutterBl = 2;
 
-        static IRAM_ATTR int shutterAng;
-        static IRAM_ATTR int shutterBlOld;
-        static IRAM_ATTR int shutterAngOld;
-        static IRAM_ATTR float shAngF;
-    static IRAM_ATTR int ang;
-    static int wrCt;
+static IRAM_ATTR int shutterVal = 1;
+static IRAM_ATTR int shutterBl = 2;
 
+static IRAM_ATTR int shutterAng;
+static IRAM_ATTR int shutterBlOld;
+static IRAM_ATTR int shutterAngOld;
+static IRAM_ATTR float shAngF;
+static IRAM_ATTR int ang;
+static int wrCt;
+static IRAM_ATTR int remap;
+
+static SemaphoreHandle_t ledCl = NULL;
+
+#define TIMER_DIVIDER 80
+#define tickPeriod 10
+
+bool IRAM_ATTR ledClock(void *param)
+{
+    static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    TIMERG1.hw_timer[TIMER_1].update = 1;
+
+    xSemaphoreGiveFromISR(ledCl, &xHigherPriorityTaskWoken);
+
+    return xHigherPriorityTaskWoken == pdTRUE;
+}
 
 void IRAM_ATTR readEncoder(void *pvParameters)
 {
 
-    //  volatile uint8_t fromWhere = 1;
+    ledCl = xSemaphoreCreateBinary();
+    const bool a_r = true;
+    timer_config_t clock = {
+        .alarm_en = TIMER_ALARM_EN,
+        .counter_en = TIMER_PAUSE,
+        .counter_dir = TIMER_COUNT_UP,
+        .auto_reload = (timer_autoreload_t)a_r,
+        .divider = TIMER_DIVIDER}; // default clock source is APB
+
+    timer_init(TIMER_GROUP_1, TIMER_1, &clock); // freertos runs using group 0?
+    timer_set_counter_value(TIMER_GROUP_1, TIMER_1, 0);
+    timer_set_alarm_value(TIMER_GROUP_1, TIMER_1, tickPeriod);
+    timer_enable_intr(TIMER_GROUP_1, TIMER_1);
+    timer_isr_callback_add(TIMER_GROUP_1, TIMER_1, ledClock, NULL, 0);
+    timer_start(TIMER_GROUP_1, TIMER_1);
+
+    // clock_info_t *timer_info = calloc(1, sizeof(clock_info_t));
+
+    timer_config_t runPeriod = {
+        .alarm_en = TIMER_ALARM_EN,
+        .counter_en = TIMER_PAUSE,
+        .counter_dir = TIMER_COUNT_UP,
+        .auto_reload = (timer_autoreload_t)a_r,
+        .divider = TIMER_DIVIDER}; // default clock source is APB
+    timer_init(TIMER_GROUP_1, TIMER_0, &runPeriod);
+    timer_set_counter_value(TIMER_GROUP_1, TIMER_0, 0);
+    remap = 0;
+
+
 
     for (;;)
     {
 
-                xQueueReceive(q_shutterBlade, &shutterBl, 1); // receive shutter blade value from UI task via queue
-                xQueueReceive(q_shutterAngle, &shutterAng, 1); // receive shutter angle value from UI task via queue
+        xSemaphoreTake(ledCl, portMAX_DELAY);
+        timer_start(TIMER_GROUP_1, TIMER_0);
 
-              if (shutterBlOld == shutterBl && shutterAngOld == shutterAng)
-              {
-                //do nothing
-              } else {
+        xQueueReceive(q_shutterBlade, &shutterBl, 1);  // receive shutter blade value from UI task via queue
+        xQueueReceive(q_shutterAngle, &shutterAng, 1); // receive shutter angle value from UI task via queue
 
+        if (shutterBlOld == shutterBl && shutterAngOld == shutterAng)
+        {
+        }
+        else
+        {
+            // remap = 1;
+            shAngF = (float)(100.00 - (float)shutterAng) / 100.00;
 
-            shAngF = (float)(100.00-(float)shutterAng)/100.00;
-
-             for (int myBlade = 0; myBlade < shutterBl; myBlade++)
+            for (int myBlade = 0; myBlade < shutterBl; myBlade++)
             {
                 int countOffset = myBlade * (150 / shutterBl);
                 for (int myCount = 0; myCount < 150 / shutterBl; myCount++)
@@ -45,35 +83,33 @@ void IRAM_ATTR readEncoder(void *pvParameters)
                     if (myCount < (150.00 / shutterBl * shAngF))
                     {
                         shutterMap[myCount + countOffset] = 1;
-                        
                     }
                     else
                     {
                         shutterMap[myCount + countOffset] = 0;
                     }
-                    
                 }
             }
-
-                shutterBlOld = shutterBl;
-                shutterAngOld = shutterAng;
-              }
-
-            ang = map(as5047.readAngle(), 0, 360, 0, 150);
-            if(shutterMap[ang] == 1) {
-                shutterVal = 1;
-            } else if (shutterMap[ang] == 0) {
-                shutterVal = 0;
-            }
-                xQueueSend(q_shutterMap, &shutterVal, 1); // send updated shutter map to shutter task via queue
-                send_LEDC();
-
-                 
         }
-        
- }
 
+        ang = map(as5047.readAngle(), 0, 360, 0, 150);
 
+        if (shutterMap[ang] == 1)
+        {
+            shutterVal = 1;
+        }
+        else if (shutterMap[ang] == 0)
+        {
+            shutterVal = 0;
+        }
+
+        xQueueSend(q_shutterMap, &shutterVal, 1); // send updated shutter map to shutter task via queue
+        send_LEDC();
+
+        shutterBlOld = shutterBl;
+        shutterAngOld = shutterAng;
+    }
+}
 
 void fixCount()
 {
@@ -84,102 +120,106 @@ void fixCount()
 // fill shutterMap array with boolean values to control LED state at each position of shutter rotation
 void updateShutterMap(void *parameter)
 
-//i am 70% sure the shutter can be represented as a math function rather than writing to an array
-//currently the array writes over the shutter array constantly, and doesnt always finish before a new shutter led position is needed
+// i am 70% sure the shutter can be represented as a math function rather than writing to an array
+// currently the array writes over the shutter array constantly, and doesnt always finish before a new shutter led position is needed
 { // move to core 0 with related interrupts
 
-        static int shutBladesVal = 0;
+    static int shutBladesVal = 0;
     static int shutAngleVal = 0;
-     static bool  *shutterMap[countsPerFrame];  // array to hold the on/off state of the shutter for each count position
-
+    static bool *shutterMap[countsPerFrame]; // array to hold the on/off state of the shutter for each count position
 
     for (;;)
     {
         // if (xSemaphoreTake(shutterMapping, 25) == pdTRUE)
         // {
         // { // take the semaphore to ensure exclusive access to shared variables
-            // Serial.println("Updating Shutter Map");
-            #if (enableSlewPots)
-  motSlewVal = motSlewPotKalman.updateEstimate(analogRead(motSlewPotPin));
-  // delay(2);
-  ledSlewVal = ledSlewPotKalman.updateEstimate(analogRead(ledSlewPotPin));
-  // delay(2);
+        // Serial.println("Updating Shutter Map");
+#if (enableSlewPots)
+        motSlewVal = motSlewPotKalman.updateEstimate(analogRead(motSlewPotPin));
+        // delay(2);
+        ledSlewVal = ledSlewPotKalman.updateEstimate(analogRead(ledSlewPotPin));
+        // delay(2);
 #endif
 
 #if (enableShutterPots && enableShutter)
-  if (musicMode == 0) {
-    shutBladesPotVal = shutBladesPotKalman.updateEstimate(analogRead(shutBladesPotPin));
-      if (shutBladesPotVal < 800) {
-    shutBladesVal = 1;
-  } else if (shutBladesPotVal < 2500) {
-    shutBladesVal = 2;
-  } else {
-    shutBladesVal = 3;
-  }
-    shutAnglePotVal = shutAnglePotKalman.updateEstimate(analogRead(shutAnglePotPin));
-  shutAngleVal = map(shutAnglePotVal, 0, 4090, 1, 100);  // map ADC input to range of shutter angle
+        if (musicMode == 0)
+        {
+            shutBladesPotVal = shutBladesPotKalman.updateEstimate(analogRead(shutBladesPotPin));
+            if (shutBladesPotVal < 800)
+            {
+                shutBladesVal = 1;
+            }
+            else if (shutBladesPotVal < 2500)
+            {
+                shutBladesVal = 2;
+            }
+            else
+            {
+                shutBladesVal = 3;
+            }
+            shutAnglePotVal = shutAnglePotKalman.updateEstimate(analogRead(shutAnglePotPin));
+            shutAngleVal = map(shutAnglePotVal, 0, 4090, 1, 100); // map ADC input to range of shutter angle
 
-    
-    // delay(2);
-  } else if (musicMode == 1) {
-    shutBladesPotVal = map(CC2ProjBlades, 0, 100, 0, 4095);
-    //inject values during Music Mode
-  }
-  // delay(2);
-  // using custom scaling for shutBladesPotVal to make control feel right
+            // delay(2);
+        }
+        else if (musicMode == 1)
+        {
+            shutBladesPotVal = map(CC2ProjBlades, 0, 100, 0, 4095);
+            // inject values during Music Mode
+        }
+        // delay(2);
+        // using custom scaling for shutBladesPotVal to make control feel right
 
+        //   shutAngleVal = constrain(shutAngleVal, 1, 100);
 
-//   shutAngleVal = constrain(shutAngleVal, 1, 100); 
-
-
-        xQueueSend(q_shutterBlade, &shutBladesVal, 20);  // send shutter blade pot value to shutter task via queue  
-      xQueueSend(q_shutterAngle, &shutAngleVal, 20);  // send shutter angle pot value to shutter task via queue
-        // clip values
+        xQueueSend(q_shutterBlade, &shutBladesVal, 20); // send shutter blade pot value to shutter task via queue
+        xQueueSend(q_shutterAngle, &shutAngleVal, 20);  // send shutter angle pot value to shutter task via queue
+                                                        // clip values
 #endif
-            // // xQueueReceive(q_shutterBlade, &sB, portMAX_DELAY);
-            // // xQueueReceive(q_shutterAngle, &sA, portMAX_DELAY);
-            // Serial.println("Update ShutterMap");
-            // //  shutterBlades: number of virtual shutter blades (must be > 0)
-            // //  shutterAngle: ratio between on/off for each shutter blade segment (0.5 = 180d)
-            // if (shutBladesVal < 1)
-            // {
-            //     shutBladesVal = 1;                       // it would break if set to 0
-            //     shutAngleVal = constrain(shutAngleVal, 0.0, 1.0); // make sure it's 0-1
-            // }
-            // for (int myBlade = 0; myBlade < shutBladesVal; myBlade++)
-            // {
-            //     int countOffset = myBlade * (countsPerFrame / shutBladesVal);
-            //     for (int myCount = 0; myCount < countsPerFrame / shutBladesVal; myCount++)
-            //     {
-                    // if (myCount < countsPerFrame / shutBladesVal * (1.0 - shutAngleVal))
-            //         {
-            //             shutterMap[myCount + countOffset] = (bool*)false;
-            //             // xQueueSend(q_shutterMap, &"0", sizeof(shutterMap)); // send updated shutter map to shutter task via queue
-            //         }
-            //         else
-            //         {
-            //             shutterMap[myCount + countOffset] = (bool*)true;
-            //             // xQueueSend(q_shutterMap, &"1", sizeof(shutterMap)); // send updated shutter map to shutter task via queue
-            //         }
-            //     }
-            // }
-            // xQueueSend(q_shutterMap, &shutterMap[countsPerFrame], sizeof(shutterMap)); // send updated shutter map to shutter task via queue
-        
-            // xSemaphoreGive(shutterMapping); // give the semaphore back after updating shared variables
-// }
+                                                       // // xQueueReceive(q_shutterBlade, &sB, portMAX_DELAY);
+                                                       // // xQueueReceive(q_shutterAngle, &sA, portMAX_DELAY);
+                                                       // Serial.println("Update ShutterMap");
+                                                       // //  shutterBlades: number of virtual shutter blades (must be > 0)
+                                                       // //  shutterAngle: ratio between on/off for each shutter blade segment (0.5 = 180d)
+                                                       // if (shutBladesVal < 1)
+                                                       // {
+                                                       //     shutBladesVal = 1;                       // it would break if set to 0
+                                                       //     shutAngleVal = constrain(shutAngleVal, 0.0, 1.0); // make sure it's 0-1
+                                                       // }
+                                                       // for (int myBlade = 0; myBlade < shutBladesVal; myBlade++)
+                                                       // {
+                                                       //     int countOffset = myBlade * (countsPerFrame / shutBladesVal);
+                                                       //     for (int myCount = 0; myCount < countsPerFrame / shutBladesVal; myCount++)
+                                                       //     {
+                                                       // if (myCount < countsPerFrame / shutBladesVal * (1.0 - shutAngleVal))
+        //         {
+        //             shutterMap[myCount + countOffset] = (bool*)false;
+        //             // xQueueSend(q_shutterMap, &"0", sizeof(shutterMap)); // send updated shutter map to shutter task via queue
+        //         }
+        //         else
+        //         {
+        //             shutterMap[myCount + countOffset] = (bool*)true;
+        //             // xQueueSend(q_shutterMap, &"1", sizeof(shutterMap)); // send updated shutter map to shutter task via queue
+        //         }
+        //     }
+        // }
+        // xQueueSend(q_shutterMap, &shutterMap[countsPerFrame], sizeof(shutterMap)); // send updated shutter map to shutter task via queue
+
+        // xSemaphoreGive(shutterMapping); // give the semaphore back after updating shared variables
+        // }
     }
 }
-    void IRAM_ATTR indexISR(void *arg)
+void IRAM_ATTR indexISR(void *arg)
+{
+
+    if (xSemaphoreTakeFromISR(spiRead, NULL) == pdTRUE)
+    // higher prio than readEncoder, but regardless it means we've hit the index and need to be reset
     {
+        EncIndexCount = 1;
 
-        if (xSemaphoreTakeFromISR(spiRead, NULL) == pdTRUE)
-        //higher prio than readEncoder, but regardless it means we've hit the index and need to be reset
-        {
-            EncIndexCount = 1;
-
-            xSemaphoreGiveFromISR(spiRead, NULL); // give the semaphore back after updating shared variables}
-        }
+        xSemaphoreGiveFromISR(spiRead, NULL); // give the semaphore back after updating shared variables}
     }
+}
 
 //     void IRAM_ATTR pinChangeISR(void *arg)
 //     {
@@ -204,7 +244,7 @@ void updateShutterMap(void *parameter)
 //             encCountOld = encCount;
 //             xQueueReceiveFromISR(q_spiRead, &encCount, &xHigherPriorityTaskWoken); // read the current count from the PCNT unit
 //             xQueueSendFromISR(q_debugShutterPosition, &encCount, &xHigherPriorityTaskWoken);  // send the current shutter position to the debug task so that it can be printed to the serial monitor for debugging purposes
-            
+
 //             if (encCountOld < encCount)
 //             {
 
@@ -250,43 +290,43 @@ void updateShutterMap(void *parameter)
 //         }
 //     }
 
-    // send info to the LEDC peripheral to update LED PWM (abstracted here because it's called from loop or ISR)
+// send info to the LEDC peripheral to update LED PWM (abstracted here because it's called from loop or ISR)
 
-    // check for encoder magnet proximity
-    void as5047MagCheck(void *pvParameters)
+// check for encoder magnet proximity
+void as5047MagCheck(void *pvParameters)
+{
+    for (;;)
     {
-        for (;;)
+
+        // read magnet AGC data from sensor registers
+        readDataFrame = as5047.readRegister(DIAGAGC_REG);
+        Diaagc diaagc;
+        diaagc.raw = readDataFrame.values.data;
+        // Serial.println(diaagc.values.magl);
+
+        // check result for magnet errors and update global var
+        if (diaagc.values.magh || diaagc.values.magl)
         {
+            as5047MagOK = 0;
+        }
+        else
+        {
+            as5047MagOK = 1;
+        }
 
-            // read magnet AGC data from sensor registers
-            readDataFrame = as5047.readRegister(DIAGAGC_REG);
-            Diaagc diaagc;
-            diaagc.raw = readDataFrame.values.data;
-            // Serial.println(diaagc.values.magl);
-
-            // check result for magnet errors and update global var
-            if (diaagc.values.magh || diaagc.values.magl)
+        // take action if global var has changed
+        if (as5047MagOK_old != as5047MagOK)
+        {
+            if (as5047MagOK)
             {
-                as5047MagOK = 0;
+                Serial.println("Magnet OK");
             }
             else
             {
-                as5047MagOK = 1;
+                Serial.println("Magnet ERROR");
             }
-
-            // take action if global var has changed
-            if (as5047MagOK_old != as5047MagOK)
-            {
-                if (as5047MagOK)
-                {
-                    Serial.println("Magnet OK");
-                }
-                else
-                {
-                    Serial.println("Magnet ERROR");
-                }
-                as5047MagOK_old = as5047MagOK;
-            }
-            vTaskDelay(100 / portTICK_PERIOD_MS);
+            as5047MagOK_old = as5047MagOK;
         }
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
+}

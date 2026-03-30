@@ -135,6 +135,11 @@ static rampInt ledAvg; // ramp object for LED brightness slewing
         btnR = 9;
       }
 
+
+          Serial.print(ledWrite_period);
+          Serial.println(" micros");
+
+
       // Serial.print(fwdS);
       // Serial.print(revS);
       // Serial.print(safeS);
@@ -200,7 +205,7 @@ static rampInt ledAvg; // ramp object for LED brightness slewing
     xQueueSend(ledPot, &ledB, 5);  // send LED brightness value to LED task via queue
 
 // xSemaphoreGive(controlLock);  // give back control lock after updating shared variables that are used in other tasks and ISRs
-vTaskDelay(20 / portTICK_PERIOD_MS);}
+vTaskDelay(60 / portTICK_PERIOD_MS);}
     
 }
 
@@ -328,35 +333,35 @@ void debugTask(void *pvParameters) {
     static int debugcnt2;
     static int ang1;
     for(;;) {
- if (debug == 1) {
-                // Serial.println('');
-                for (int indx = 0; indx < 150; indx++)
-                {
-                    if (indx == ang)
-                    {
-                      if (shutterMap[indx] == 1)
-                      {
-                        Serial.print("O");
-                      }
-                      else if (shutterMap[indx] == 0)
-                      {
-                        Serial.print(" ");
+//  if (debug == 1) {
+//                 // Serial.println('');
+//                 for (int indx = 0; indx < 150; indx++)
+//                 {
+//                     if (indx == ang)
+//                     {
+//                       if (shutterMap[indx] == (uint32_t*)1)
+//                       {
+//                         Serial.print("O");
+//                       }
+//                       else if (shutterMap[indx] == 0)
+//                       {
+//                         Serial.print(" ");
                         
-                      }
+//                       }
 
-                    } else
-                    {
-                        if (shutterMap[indx] == 1)
-                        {
-                            Serial.print(" ");
-                        } else if (shutterMap[indx] == 0)
-                        {
-                            Serial.print("X");
-                        }
-                    }
-                }
-                Serial.println(' ');
-            }
+//                     } else
+//                     {
+//                         if (shutterMap[indx] == (uint32_t*)1)
+//                         {
+//                             Serial.print(" ");
+//                         } else if (shutterMap[indx] == 0)
+//                         {
+//                             Serial.print("X");
+//                         }
+//                     }
+//                 }
+//                 Serial.println(' ');
+//             }
 
 
         

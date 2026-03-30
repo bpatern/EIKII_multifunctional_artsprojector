@@ -148,9 +148,9 @@ void createTasks() {
           xTaskCreatePinnedToCore(
     readEncoder,
     "readEncoder",
-    16000,
+    10000,
     NULL,
-    16,
+    configMAX_PRIORITIES - 1,
     NULL,
     0
     );
@@ -404,7 +404,7 @@ void motorConfig() {
   Serial.print("Sending neutral signal to ESC...");
   delay(4000);
   Serial.println("Done");
-    ledcWrite(motPWMChannel, (1 << motPWMRes) * 1250 / motPWMPeriod);  // duty = # of values at current res * US / pulse period
+    ledcWrite(motPWMChannel, (1 << motPWMRes) * 1375 / motPWMPeriod);  // duty = # of values at current res * US / pulse period
 
 }
 
