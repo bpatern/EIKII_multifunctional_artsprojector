@@ -41,7 +41,12 @@ const float safeMin = 0.6;       // The minimum brightness in safe mode when run
 
 // Debug messages. Use only one. (Warning: debug messages might cause loss of shutter sync. Turn off if not needed.)
 
-static int debug = 1;
+static int debug = 0;
+
+/*
+debug = 1 for shutter graphic representation
+debug = 5 to check button interrupt functionality
+*/
 static int debugEncoder = 0;   // serial messages for encoder count and shutterMap value
 static int debugUI = 0;        // serial messages for user interface inputs (pots, buttons, switches)
 static int debugFrames = 0;    // serial messages for frame count and FPS

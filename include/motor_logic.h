@@ -1,7 +1,9 @@
 void updateMotor(void *pvParameters) { 
   static int motPotVal;
+  static rampInt motAvg; // ramp object for motor speed slewing
+
   for(;;) {
-    if (xSemaphoreTake(controlLock, portMAX_DELAY) == pdTRUE) {  // take control lock to read UI values and update shared variables that are used in other tasks and ISRs
+    // if (xSemaphoreTake(controlLock, portMAX_DELAY) == pdTRUE) {  // take control lock to read UI values and update shared variables that are used in other tasks and ISRs
       xQueueReceive(motPot, &motPotVal, 10);  // receive motor pot value from UI task via queue
 
 
@@ -283,10 +285,9 @@ void updateMotor(void *pvParameters) {
 //     Serial.print(FPSrealAvg);
 //     Serial.println(", 24");
 //   }
-      xSemaphoreGive(controlLock);  // release control lock so other tasks and ISRs can read updated values and run
+      // xSemaphoreGive(controlLock);  // release control lock so other tasks and ISRs can read updated values and run
 
      vTaskDelay(50 / portTICK_PERIOD_MS);
 
     }
-}
 }

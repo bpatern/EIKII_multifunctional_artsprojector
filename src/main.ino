@@ -26,6 +26,7 @@
 
 #include "pindef.h"
 
+#include "led.h"
 
 #include "config_functions.h"
 
@@ -43,9 +44,19 @@
 
 void setup() {
 
+
+
   if (useAS5047) {
-    as5047Config();
-  }
+      xTaskCreatePinnedToCore(
+        core0setup,
+        "core0setup",
+        10000,
+        NULL,
+        24,
+        NULL,
+        0
+    );
+    }
 
   lightSetup();
 
@@ -71,6 +82,7 @@ void setup() {
   motorConfig();
   }
   vTaskDelay(500 / portTICK_PERIOD_MS); // small delay to ensure everything is set up before we start creating tasks
+  shutterMapping = xSemaphoreCreateMutex(); // create the shutter mapping semaphore after the delay to ensure that it is created after the tasks that use it are created, which prevents potential issues with tasks trying to take a semaphore that hasn't been created yet. this is important because the shutter mapping semaphore is used in
           createTasks();
 
 
@@ -80,7 +92,6 @@ void setup() {
 
 #include "ui.h"
 
-#include "led.h"
 
 #include "esc.h"
 

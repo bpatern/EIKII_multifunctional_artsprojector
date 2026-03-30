@@ -8,17 +8,18 @@ static QueueHandle_t outCommanderQueue;
 static QueueHandle_t q_shutterBlade, q_shutterAngle, q_ledBright, q_motSpeed, q_spiRead, q_actualShutterMap;
 static QueueHandle_t motPot, ledPot, shutBladePot, shutAnglePot;
 static QueueHandle_t q_intr1_hasRun, q_intr2_hasRun, q_debugShutterPosition;
+static QueueHandle_t q_motRunFwd,q_motRunBack,q_safemode, q_buttonF, q_buttonR;
 // static QueueHandle_t q_shutterMap;
-static QueueHandle_t q_shutterMap;
+static QueueHandle_t q_shutterMap, q_peekLED;
     static SemaphoreHandle_t encoderMutex = NULL; // create a mutex to protect the encoder count variable that is updated in the ISR and read in the main loop
         static SemaphoreHandle_t spiRead = NULL; // create a mutex to protect the encoder count variable that is updated in the ISR and read in the main loop
+static SemaphoreHandle_t led_iswriting = NULL;
 
 static SemaphoreHandle_t controlLock = NULL;
     portMUX_TYPE shutterFunctionLock = portMUX_INITIALIZER_UNLOCKED;  // create a spinlock to protect the shutter function that is called in the ISR and uses shared variables
- static SemaphoreHandle_t shutterMapping = NULL;
  portMUX_TYPE shutterMappingLock = portMUX_INITIALIZER_UNLOCKED;  // create a spinlock to protect the shutter mapping function that is called in the shutter map update task and uses shared variables
+         static SemaphoreHandle_t shutterMapping;
 
-   BaseType_t xHigherPriorityTaskWoken = pdTRUE;
 
 static pcnt_config_t as5047_config = {
         .pulse_gpio_num = 16,
@@ -74,6 +75,9 @@ int motSlewMin = 0;      // the minumum slew value when knob is turned down (mse
 int motSlewMax = 10000;  // the max slew value when knob is turned up (msec).
 
 
+volatile bool shutterMap[150];
+
+
 
 
 
@@ -98,8 +102,8 @@ int LedInvert = 1;                // set to 1 to invert LED output signal so it'
 // int ledBright = 0;                // current brightness of LED (range depends on Res below. If we're ramping then this will differ from pot value)
 float safeSpeedMult = 0.4;        // multiplier to use in "safe mode" to lower lamp brightness at low FPS
 const int ledBrightRes = 12;      // bits of resolution for LED dimming
-const int ledBrightFreq = 18000;  // PWM frequency (500Hz is published max for H6cc LED driver, 770Hz is closer to shutter segment period, 1000 seems to work best)
-const int ledChannel = 0;         // ESP32 LEDC channel number. Pairs share settings (0/1, 2/3, 4/5...) so skip one to insure your settings work!
+const int ledBrightFreq = 17000;  // PWM frequency (500Hz is published max for H6cc LED driver, 770Hz is closer to shutter segment period, 1000 seems to work best)
+const IRAM_ATTR int ledChannel = 0;         // ESP32 LEDC channel number. Pairs share settings (0/1, 2/3, 4/5...) so skip one to insure your settings work!
    static int intr1_hasRun = 0;
    static int intr2_hasRun = 0;
    static int debugShutterPosition;

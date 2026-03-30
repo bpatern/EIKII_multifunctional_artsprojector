@@ -24,19 +24,19 @@ void serial2RX(void * parameter) {
   }
 }
 
+static char send;
 void serial2tx(void * parameter) {
-      char* send = 0;
   //     // char* sendtest = "<1.35,0.79,4094,1683,0,95,0,0>";
     uint16_t rx_fifo_len, status;
   uint16_t i;
   for (;;) {
 
-    xQueueReceive(outCommanderQueue, &send, portMAX_DELAY);
+    // xQueueReceive(outCommanderQueue, &send, 5);
 
-    Serial2.println(send);
+    // Serial2.println(send);
 
 
-    vTaskDelay(100 / portTICK_PERIOD_MS); // adjust this delay as needed to control the rate of sending data. if we're sending the full data string, we might want to increase this delay to prevent flooding the commander with too many messages.
+    vTaskDelay(20 / portTICK_PERIOD_MS); // adjust this delay as needed to control the rate of sending data. if we're sending the full data string, we might want to increase this delay to prevent flooding the commander with too many messages.
   }
 }
 
@@ -72,6 +72,7 @@ void sendConfirmation(char type) {
 void externalcontrol() {
 
     uint8_t recvByte;
+    uint8_t peekLED;
 
 
     for(;;) {
@@ -87,9 +88,11 @@ void externalcontrol() {
         } 
         else if (sendingIndividualCommand == 0 || uxQueueMessagesWaiting(outCommanderQueue) == 0) 
         {
- String data = "<" + String(FPSreal) + "," + String(shutAngleVal) + "," + String(ledPotVal) + "," + String(shutBladesPotVal) + "," + String(motMode) + "," + String(frame) + "," + String(motSingle) + "," + String(mCopyStatus) + ">";
- const char* dataChar = data.c_str(); // convert String to const char*
- xQueueSend(outCommanderQueue, &dataChar, portMAX_DELAY); // send the data string to the queue for transmission over UART
+xQueueReceive(q_peekLED, &peekLED, 5);
+ static String data = "<" + String(FPSreal) + "," + String(shutAngleVal) + "," + String(peekLED) + "," + String(shutBladesPotVal) + "," + String("1") + "," + String(frame) + "," + String(motSingle) + "," + String(mCopyStatus) + ">";
+//  static char* dataChar = data.c_str(); // convert String to const char*
+//  xQueueSend(outCommanderQueue, &data, portMAX_DELAY); // send the data string to the queue for transmission over UART
+ Serial2.println(data);
         }
  //ill be thrilled if this works. then i can probably setup a parameter that adjusts speed based on usage or asks for a different string depending on mode.
 

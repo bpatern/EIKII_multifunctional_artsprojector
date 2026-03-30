@@ -41,7 +41,8 @@ AS5X47Spi::AS5X47Spi(uint8_t _chipSelectPin) {
 
 void AS5X47Spi::writeData(uint16_t command, uint16_t value) {
 	// @todo Expose the SPI Maximum Frequency in library interface.
-	SPI.beginTransaction(SPISettings(100000, MSBFIRST, SPI_MODE1));
+
+	SPI.beginTransaction(SPISettings(16000000, MSBFIRST, SPI_MODE1));
 	// Send command
 	digitalWrite(chipSelectPin, LOW);
 	SPI.transfer16(command);
@@ -57,7 +58,7 @@ void AS5X47Spi::writeData(uint16_t command, uint16_t value) {
 }
 
 uint16_t AS5X47Spi::readData(uint16_t command, uint16_t nopCommand) {
-	SPI.beginTransaction(SPISettings(100000, MSBFIRST, SPI_MODE1));
+	SPI.beginTransaction(SPISettings(20000000, MSBFIRST, SPI_MODE1));
 
 	// Send Read Command
 	digitalWrite(chipSelectPin, LOW);

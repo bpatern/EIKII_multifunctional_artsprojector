@@ -16,7 +16,7 @@ void updateLed(void *pvParameters);
 void as5047MagCheck(void *pvParameters);
 void calcFPS(void *pvParameters);
 void readUI(void *pvParameters);
-void readEncoder(void *pvParameters);
+void IRAM_ATTR readEncoder(void *pvParameters);
 void ESCprogram();
 void fixCount();
 void shutterQueue(byte shutterBlades, float shutterAngle);
@@ -29,9 +29,15 @@ void updateStatusLED(int x, int R, int G, int B);
 // (prototype must be declared _before_ we attach interrupt because ESP32 requires "IRAM_ATTR" flag which breaks typical Arduino behavior)
 void IRAM_ATTR pinChangeISR(void *arg);
 void IRAM_ATTR indexISR(void *arg);
-void IRAM_ATTR send_LEDC();
+// static void IRAM_ATTR send_LEDC(void *arg);
 void debugTask(void *pvParameters);
+static void IRAM_ATTR gpioGet(void *arg);
 
 double mapf(double x, double in_min, double in_max, double out_min, double out_max);
+
 float fscale(float originalMin, float originalMax, float newBegin, float newEnd, float inputValue, float curve);
+
+void as5047Config();
+void gpioConfig();
+
 

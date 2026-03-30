@@ -1,22 +1,159 @@
+static int irqCt;
+
+static volatile uint64_t last_isr_time = 0;
+#define DEBOUNCE_DELAY_US 10000ULL  // Debounce delay in microseconds (50 ms)
+    static uint8_t gpio_level = 0;
+
+static void IRAM_ATTR gpioGet(void *arg) 
+{
+
+  uint64_t now = esp_timer_get_time();
+
+  if (now - last_isr_time > DEBOUNCE_DELAY_US) {
+
+    uint32_t gpio_num = (uint32_t) arg;
+
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    last_isr_time = now;
+
+
+    gpio_level++;
+    if (gpio_level > 1)
+    {
+      gpio_level = 0;
+    }
+    if (gpio_num == motDirFwdSwitch)
+    {
+      xQueueSendFromISR(q_motRunFwd, &gpio_level, NULL);
+    }
+
+    else if (gpio_num == motDirBckSwitch)
+    {
+      xQueueSendFromISR(q_motRunBack, &gpio_level, NULL);
+    }
+
+    else if (gpio_num == safeSwitch)
+    {
+      xQueueSendFromISR(q_safemode, &gpio_level, NULL);
+    }
+
+    else if (gpio_num == buttonApin)
+    {
+      xQueueSendFromISR(q_buttonF, &gpio_level, NULL);
+    }
+
+    else if (gpio_num == buttonBpin)
+    {
+      xQueueSendFromISR(q_buttonR, &gpio_level, NULL);
+    }
+
+
+
+    // if (higher_priority_task_woken) {
+    //     portYIELD_FROM_ISR();
+    // }
+}
+
+}
+
 void readUI(void *pvparemeters) { 
 
 
+    static int ledPotVal = 0;
+    static int ledB = 0;
+    static int ledSlewValOld;
+    static int motSlewValOld;
+    static int ledSlewVal;
 
+    static int fwdS = 9;
+    static int revS= 9;
+    static int safeS= 9;
+    static int btnF= 9;
+    static int btnR= 9;
+
+
+
+static rampInt ledAvg; // ramp object for LED brightness slewing
 
     for (;;) {
-        if (xSemaphoreTake(controlLock, portMAX_DELAY) == pdTRUE) {  // take control lock to read UI values and update shared variables that are used in other tasks and ISRs
+        // if (xSemaphoreTake(controlLock, portMAX_DELAY) == pdTRUE) {  // take control lock to read UI values and update shared variables that are used in other tasks and ISRs
         
+      xQueueReceive(q_motRunFwd, &fwdS, 3);
+      xQueueReceive(q_motRunBack, &revS, 3);
+      xQueueReceive(q_safemode, &safeS, 3);
+      xQueueReceive(q_buttonF, &btnF, 3);
+      xQueueReceive(q_buttonR, &btnR, 3);
+
+      if(fwdS == 1) 
+      {
+        Serial.print("FWD");
+        fwdS = 9;
+      } else if (fwdS == 0) 
+      {
+        Serial.print("x");
+        fwdS = 9;
+      }
+
+      if(revS == 1)
+      {
+        Serial.print("REV");
+        revS = 9;
+
+      } else if (revS == 0)
+      {
+        Serial.print("x");
+        revS = 9;
+      }
+      
+       if (safeS == 1)
+      {
+        Serial.print("SAFE");
+        safeS = 9;
+      } else if (safeS == 0)
+      {
+        Serial.print("x");
+        safeS = 9;
+      }
+
+      if (btnF == 1)
+      {
+        Serial.print("FB");
+        btnF = 9;
+      } else if (btnF == 0)
+      {
+        Serial.print("x");
+        btnF = 9;
+      }
+
+      if (btnR == 1)
+      {
+        Serial.print("RB");
+        btnR = 9;
+      } else if (btnR == 0)
+      {
+        Serial.print("x");
+        btnR = 9;
+      }
+
+      // Serial.print(fwdS);
+      // Serial.print(revS);
+      // Serial.print(safeS);
+      // Serial.print(btnF);
+      // Serial.println(btnR);
+
+
+
 
 
 
   //if (onboardcontrol == 1) {
 
-#if (enableButtons)
-  buttonA.loop();  // update button managed by Bounce2 library
-  buttonB.loop();  // update button managed by Bounce2 library
+// #if (enableButtons)
+//   buttonA.loop();  // update button managed by Bounce2 library
+//   buttonB.loop();  // update button managed by Bounce2 library
 
 
-#endif
+// #endif
     motPotVal = motPotKalman.updateEstimate(analogRead(motPotPin));
 
     xQueueSend(motPot, &motPotVal, 5);  // send motor pot value to motor task via queue
@@ -33,17 +170,38 @@ void readUI(void *pvparemeters) {
       ledPotVal = ledPotVal * safeSpeedMult;                              // decrease brightness to prevent film burns
     }
   }
-    xQueueSend(ledPot, &ledPotVal, 5);  // send LED pot value to LED task via queue
 
 
 
 
-#if (enableSafeSwitch)
-  safeMode = digitalRead(safeSwitch);
+// #if (enableSafeSwitch)
+//   safeMode = digitalRead(safeSwitch);
+// #endif
+
+    //first 
+
+  ledAvg.update();  // LED slewing managed by Ramp library
+
+  #if (enableSlewPots)
+  ledSlewVal = map(ledSlewVal, 0, 4095, ledSlewMin, ledSlewMax);  // turn slew val pot into ms ramp time
 #endif
-xSemaphoreGive(controlLock);  // give back control lock after updating shared variables that are used in other tasks and ISRs
+  // if knobs have changed sufficiently, calculate new slewing ramp time
+    if (abs(ledSlewVal - ledSlewValOld) >= 50 || abs(ledPotVal - ledPotValOld) >= 50) {
+      //Serial.println("(LED UPDATE SLEW)");
+      ledAvg.go(ledPotVal, ledSlewVal);  // set next ramp interpolation in ms
+      ledSlewValOld = ledSlewVal;
+      ledPotValOld = ledPotVal;
+    }
+
+    // set brightness to slewed version of pot value (mapped/clipped because kalman filter sometimes doesn't allow us to reach min/max)
+    ledB = map(ledAvg.getValue(), 40, 4045, ledMin, ledMax);
+    ledB = constrain(ledB, 0, 4095);
+
+    xQueueSend(ledPot, &ledB, 5);  // send LED brightness value to LED task via queue
+
+// xSemaphoreGive(controlLock);  // give back control lock after updating shared variables that are used in other tasks and ISRs
 vTaskDelay(20 / portTICK_PERIOD_MS);}
-    } 
+    
 }
 
 
@@ -168,89 +326,43 @@ void debugTask(void *pvParameters) {
     static int startup = 0;
     static int debugcnt1;
     static int debugcnt2;
-    static int ang;
+    static int ang1;
     for(;;) {
-  if (debug) {
+ if (debug == 1) {
+                // Serial.println('');
+                for (int indx = 0; indx < 150; indx++)
+                {
+                    if (indx == ang)
+                    {
+                      if (shutterMap[indx] == 1)
+                      {
+                        Serial.print("O");
+                      }
+                      else if (shutterMap[indx] == 0)
+                      {
+                        Serial.print(" ");
+                        
+                      }
 
-
-//     // Serial.print("Motor Pot Queue: ");
-//     // Serial.print(xQueuePeek(motPot, NULL, 0)); 
-//     // Serial.print(" | LED Pot Queue: ");
-//     // Serial.print(xQueuePeek(ledPot, NULL, 0));
-//     // Serial.print(" | LED Bright Queue: ");
-//     // Serial.print(xQueuePeek(q_ledBright, NULL, 0));
-//     // Serial.print(" | Shutter Blade Queue: ");
-//     // Serial.print(xQueuePeek(q_shutterBlade, NULL, 0));
-
-//     Serial.print("Shutter Position: ");
-// if (xSemaphoreTake(spiRead, 200 / portTICK_PERIOD_MS) == pdTRUE)
-// {
-//     xQueueReceive(q_spiRead, &ang, 25/portTICK_PERIOD_MS);  // receive shutter map from shutter task via queue
-//     Serial.print(ang);
-//     xSemaphoreGive(spiRead);
-// } 
-// //     Serial.print(ang);
-// // }
-// //     // Serial.print(" | outCommanderQueue");
-// //     // Serial.println(xQueuePeek(outCommanderQueue, NULL, 0));
-// //     Serial.println('\n');
-
-
-
-    Serial.print("encoderRead? ");
-    if(uxSemaphoreGetCount(spiRead) == 0) {
-      Serial.print("No");
-    } else {
-      Serial.print("Yes");
-    }
-
-                Serial.print(" || ");
-
-            Serial.print("shutterMapping? ");
-    if(uxSemaphoreGetCount(shutterMapping) == 0) {
-      Serial.print("No");
-    } else {
-      Serial.print("Yes");
-    }
-
-                Serial.print(" || ");
-
-
-            Serial.print("controlLock? ");
-    if(uxSemaphoreGetCount(controlLock) == 0) {
-      Serial.print("No");
-    } else {
-      Serial.print("Yes");
-    }
-                    Serial.print(" || ");
-
-
-
-    Serial.print("Heap free: ");
-    Serial.print(xPortGetFreeHeapSize());
-
-                Serial.print(" || ");
-
-
-//             Serial.println('\n');
-xQueueReceive(q_intr1_hasRun, &debugcnt1, 1);  // receive from the queue to see if the LED ISR has run at least once, which we use as a signal to start sending the shutter map to the LED task via its queue
-Serial.print("LED ISR: " + String(debugcnt1));
-xQueueReceive(q_intr2_hasRun, &debugcnt2, 1);  // receive from the queue to see if the LED ISR has run at least once, which we use as a signal to start sending the shutter map to the LED task via its queue
-Serial.print(" | " + String(debugcnt2));
-
-                                Serial.print(" || ");
-
-
-xQueueReceive(q_debugShutterPosition, &ang, 1);  // receive from the queue to see if the LED ISR has run at least once, which we use as a signal to start sending the shutter map to the LED task via its queue
-Serial.print("encCount: " + String(ang));
-
-                Serial.println(" || ");
+                    } else
+                    {
+                        if (shutterMap[indx] == 1)
+                        {
+                            Serial.print(" ");
+                        } else if (shutterMap[indx] == 0)
+                        {
+                            Serial.print("X");
+                        }
+                    }
+                }
+                Serial.println(' ');
+            }
 
 
         
 
 
 
-vTaskDelay(50 / portTICK_PERIOD_MS);}
+          }
 
-  } }
+  } 
