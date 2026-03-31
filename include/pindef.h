@@ -3,6 +3,9 @@
 #define EncA 16   // encoder pulse A (AS5047 sensor)
 #define EncB 4    // encoder pulse B (AS5047 sensor)
 #define EncCSN 5  // encoder SPI CSN Pin (AS5047 sensor) - Library also reserves GPIO 18, 19, 23 for SPI
+#define EncMOSI 23
+#define EncMISO 19
+#define EncCLK 18
 
 // OUTPUT PINS //
 #define escPin 22         // PWM output for ESC

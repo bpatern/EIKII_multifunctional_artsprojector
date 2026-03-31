@@ -7,22 +7,50 @@ static IRAM_ATTR int shutterBlOld;
 static IRAM_ATTR int shutterAngOld;
 static IRAM_ATTR float shAngF;
 static IRAM_ATTR int ang;
-static int wrCt;
+static IRAM_ATTR int wrCt;
 static IRAM_ATTR int remap;
 
-static SemaphoreHandle_t ledCl = NULL;
+
+
+static void IRAM_ATTR shutterRead(spi_transaction_t *val) 
+{
+        static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xSemaphoreGiveFromISR(encoderRead, &xHigherPriorityTaskWoken);
+        if(&xHigherPriorityTaskWoken)
+            {
+                portYIELD_FROM_ISR();
+            }
+
+
+}
+
+    static spi_transaction_t sb;
 
 #define TIMER_DIVIDER 80
 #define tickPeriod 10
 
-bool IRAM_ATTR ledClock(void *param)
+    static gptimer_handle_t ledtick = NULL;
+
+
+bool IRAM_ATTR ledClock(gptimer_handle_t, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
     static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    TIMERG1.hw_timer[TIMER_1].update = 1;
 
     xSemaphoreGiveFromISR(ledCl, &xHigherPriorityTaskWoken);
 
     return xHigherPriorityTaskWoken == pdTRUE;
+}
+
+void IRAM_ATTR processVal(void *pvParameters)
+{
+    for(;;)
+    {
+        // xSemaphoreTake(encoderRead, portMAX_DELAY);
+        // rx_buffer;
+
+        // Serial.println(sb);
+
+    }
 }
 
 void IRAM_ATTR readEncoder(void *pvParameters)
@@ -30,31 +58,72 @@ void IRAM_ATTR readEncoder(void *pvParameters)
 
     ledCl = xSemaphoreCreateBinary();
     const bool a_r = true;
-    timer_config_t clock = {
-        .alarm_en = TIMER_ALARM_EN,
-        .counter_en = TIMER_PAUSE,
-        .counter_dir = TIMER_COUNT_UP,
-        .auto_reload = (timer_autoreload_t)a_r,
-        .divider = TIMER_DIVIDER}; // default clock source is APB
 
-    timer_init(TIMER_GROUP_1, TIMER_1, &clock); // freertos runs using group 0?
-    timer_set_counter_value(TIMER_GROUP_1, TIMER_1, 0);
-    timer_set_alarm_value(TIMER_GROUP_1, TIMER_1, tickPeriod);
-    timer_enable_intr(TIMER_GROUP_1, TIMER_1);
-    timer_isr_callback_add(TIMER_GROUP_1, TIMER_1, ledClock, NULL, 0);
-    timer_start(TIMER_GROUP_1, TIMER_1);
+        vTaskDelay(250 / portTICK_PERIOD_MS); // small delay to ensure everything is set up before we start creating tasks
 
-    // clock_info_t *timer_info = calloc(1, sizeof(clock_info_t));
 
-    timer_config_t runPeriod = {
-        .alarm_en = TIMER_ALARM_EN,
-        .counter_en = TIMER_PAUSE,
-        .counter_dir = TIMER_COUNT_UP,
-        .auto_reload = (timer_autoreload_t)a_r,
-        .divider = TIMER_DIVIDER}; // default clock source is APB
-    timer_init(TIMER_GROUP_1, TIMER_0, &runPeriod);
-    timer_set_counter_value(TIMER_GROUP_1, TIMER_0, 0);
-    remap = 0;
+   static gptimer_config_t clocktimer = {
+        .clk_src = GPTIMER_CLK_SRC_APB,
+        .direction = GPTIMER_COUNT_UP,
+        .resolution_hz = 1000000,
+        .intr_priority = 0
+    };
+        gptimer_new_timer(&clocktimer, &ledtick);
+
+
+    static gptimer_event_callbacks_t clockCB = {
+        .on_alarm = ledClock,
+    };
+        gptimer_register_event_callbacks(ledtick, &clockCB, NULL);
+
+
+    static gptimer_alarm_config_t ledAlarm = {
+        .alarm_count = 5,
+        .reload_count = 0,
+    };
+    ledAlarm.flags.auto_reload_on_alarm = true;
+    gptimer_set_alarm_action(ledtick, &ledAlarm);
+
+    gptimer_enable(ledtick);
+    gptimer_start(ledtick);
+
+
+
+    // timer_config_t clock = {
+    //     .alarm_en = TIMER_ALARM_EN,
+    //     .counter_en = TIMER_PAUSE,
+    //     .counter_dir = TIMER_COUNT_UP,
+    //     .auto_reload = (timer_autoreload_t)a_r,
+    //     .divider = TIMER_DIVIDER}; // default clock source is APB
+
+    // timer_init(TIMER_GROUP_1, TIMER_1, &clock); // freertos runs using group 0?
+    // timer_set_counter_value(TIMER_GROUP_1, TIMER_1, 0);
+    // timer_set_alarm_value(TIMER_GROUP_1, TIMER_1, tickPeriod);
+    // timer_enable_intr(TIMER_GROUP_1, TIMER_1);
+    // timer_isr_callback_add(TIMER_GROUP_1, TIMER_1, ledClock, NULL, 0);
+    // timer_start(TIMER_GROUP_1, TIMER_1);
+
+    // // clock_info_t *timer_info = calloc(1, sizeof(clock_info_t));
+
+    // timer_config_t runPeriod = {
+    //     .alarm_en = TIMER_ALARM_EN,
+    //     .counter_en = TIMER_PAUSE,
+    //     .counter_dir = TIMER_COUNT_UP,
+    //     .auto_reload = (timer_autoreload_t)a_r,
+    //     .divider = TIMER_DIVIDER}; // default clock source is APB
+    // timer_init(TIMER_GROUP_1, TIMER_0, &runPeriod);
+
+    // static gptimer_config_t watchdawgTimer = {
+    //     .clk_src = GPTIMER_CLK_SRC_APB,
+    //     .direction = GPTIMER_COUNT_UP,
+    //     .resolution_hz = 1000000,
+    //     .intr_priority = 0
+    // };
+    //  gptimer_new_timer(&watchdawgTimer, &watchdawg);
+    //         gptimer_enable(watchdawg);
+
+
+    // timer_set_counter_value(TIMER_GROUP_1, TIMER_0, 0);
 
 
 
@@ -62,10 +131,10 @@ void IRAM_ATTR readEncoder(void *pvParameters)
     {
 
         xSemaphoreTake(ledCl, portMAX_DELAY);
-        timer_start(TIMER_GROUP_1, TIMER_0);
-
-        xQueueReceive(q_shutterBlade, &shutterBl, 1);  // receive shutter blade value from UI task via queue
-        xQueueReceive(q_shutterAngle, &shutterAng, 1); // receive shutter angle value from UI task via queue
+        // Serial.println("X");
+        // gptimer_start(watchdawg);
+        // xQueueReceive(q_shutterBlade, &shutterBl, 1);  // receive shutter blade value from UI task via queue
+        // xQueueReceive(q_shutterAngle, &shutterAng, 1); // receive shutter angle value from UI task via queue
 
         if (shutterBlOld == shutterBl && shutterAngOld == shutterAng)
         {
@@ -92,8 +161,8 @@ void IRAM_ATTR readEncoder(void *pvParameters)
             }
         }
 
-        ang = map(as5047.readAngle(), 0, 360, 0, 150);
-
+        // ang = map(as5047.readAngle(), 0, 360, 0, 150);
+            ang = 0;
         if (shutterMap[ang] == 1)
         {
             shutterVal = 1;
@@ -113,7 +182,7 @@ void IRAM_ATTR readEncoder(void *pvParameters)
 
 void fixCount()
 {
-    encCount = map(as5047.readAngle(), 0, 360, 0, 100);
+    // encCount = map(as5047.readAngle(), 0, 360, 0, 100);
     Serial.println("   (Updated count via SPI)");
 }
 
@@ -209,124 +278,47 @@ void updateShutterMap(void *parameter)
         // }
     }
 }
-void IRAM_ATTR indexISR(void *arg)
-{
 
-    if (xSemaphoreTakeFromISR(spiRead, NULL) == pdTRUE)
-    // higher prio than readEncoder, but regardless it means we've hit the index and need to be reset
-    {
-        EncIndexCount = 1;
 
-        xSemaphoreGiveFromISR(spiRead, NULL); // give the semaphore back after updating shared variables}
-    }
-}
 
-//     void IRAM_ATTR pinChangeISR(void *arg)
-//     {
-
-//         // first store last value
-
-//         static int encCount; // current rotary count
-//         static int encCountOld; // previous rotary count, used to determine direction
-
-//         if (xSemaphoreTakeFromISR(spiRead, &xHigherPriorityTaskWoken) == pdTRUE)
-//         { // take the semaphore to ensure exclusive access to shared variables
-
-//             taskENTER_CRITICAL_ISR(&shutterFunctionLock); // we are in the real meat + potatoes
-//             // this makes sure that this interrupt is seen through
-//                   if(debug)
-//   {
-//     intr1_hasRun++;
-//   xQueueSendFromISR(q_intr1_hasRun, &intr1_hasRun, &xHigherPriorityTaskWoken);  // send a value to the shutter task to indicate that the LED ISR has run at least once, which we use as a signal to start sending the shutter map to the LED task via its queue
-
-//   }
-
-//             encCountOld = encCount;
-//             xQueueReceiveFromISR(q_spiRead, &encCount, &xHigherPriorityTaskWoken); // read the current count from the PCNT unit
-//             xQueueSendFromISR(q_debugShutterPosition, &encCount, &xHigherPriorityTaskWoken);  // send the current shutter position to the debug task so that it can be printed to the serial monitor for debugging purposes
-
-//             if (encCountOld < encCount)
-//             {
-
-//                 if (EncIndexCount == 1)
-//                 { // reset counter on 'middle" transition during index condition
-//                     frame++;
-//                     FPSframe = 1000000.0 / framePeriod; // update FPS calc based on period between each frame
-//                     framePeriod = 0;
-//                     EncIndexCount = 0; // reset index count so we can detect the next index trigger
-//                 }
-//                 // but if the index pin hasnt been triggered, we run an alternative function
-//                 else
-//                 {
-//                     FPScount = 10000.0 / countPeriod; // update FPS calc based on period between the 100 encoder counts
-//                     countPeriod = 0;
-//                     motModeReal = 1; // mark that we're running forwards
-//                 }
-//             }
-//             else if (encCountOld > encCount)
-//             {
-//                 //   //     // moving backwards ...
-//                 if (EncIndexCount == 1)
-//                 {   // reset counter on 'middle" transition during index condition
-//                     frame--;
-//                     FPSframe = 1000000.0 / framePeriod; // update FPS calc based on period between each frame
-//                     framePeriod = 0;
-//                     EncIndexCount = 0; // reset index count so we can detect the next index trigger
-
-//                 }
-//                 else
-//                 {
-//                     // normal backwards count
-//                     FPScount = 10000.0 / countPeriod; // update FPS calc based on period between the 100 encoder counts
-//                     countPeriod = 0;
-//                     motModeReal = -1; // mark that we're running backwards
-//                 }
-//             }
-//             xQueueSendFromISR(q_shutterMap, &encCount, &xHigherPriorityTaskWoken); // read the current count from the PCNT unit again to ensure we have the most up-to-date value for any subsequent interrupts
-//             // send_LEDC(); // actual update code is abstracted so it can be run in different contexts
-
-//             taskEXIT_CRITICAL_ISR(&shutterFunctionLock); // exit critical section
-//             xSemaphoreGiveFromISR(spiRead, &xHigherPriorityTaskWoken);   // give the semaphore back after updating shared variables
-//         }
-//     }
 
 // send info to the LEDC peripheral to update LED PWM (abstracted here because it's called from loop or ISR)
 
 // check for encoder magnet proximity
-void as5047MagCheck(void *pvParameters)
-{
-    for (;;)
-    {
+// void as5047MagCheck(void *pvParameters)
+// {
+//     for (;;)
+//     {
 
-        // read magnet AGC data from sensor registers
-        readDataFrame = as5047.readRegister(DIAGAGC_REG);
-        Diaagc diaagc;
-        diaagc.raw = readDataFrame.values.data;
-        // Serial.println(diaagc.values.magl);
+//         // read magnet AGC data from sensor registers
+//         readDataFrame = as5047.readRegister(DIAGAGC_REG);
+//         Diaagc diaagc;
+//         diaagc.raw = readDataFrame.values.data;
+//         // Serial.println(diaagc.values.magl);
 
-        // check result for magnet errors and update global var
-        if (diaagc.values.magh || diaagc.values.magl)
-        {
-            as5047MagOK = 0;
-        }
-        else
-        {
-            as5047MagOK = 1;
-        }
+//         // check result for magnet errors and update global var
+//         if (diaagc.values.magh || diaagc.values.magl)
+//         {
+//             as5047MagOK = 0;
+//         }
+//         else
+//         {
+//             as5047MagOK = 1;
+//         }
 
-        // take action if global var has changed
-        if (as5047MagOK_old != as5047MagOK)
-        {
-            if (as5047MagOK)
-            {
-                Serial.println("Magnet OK");
-            }
-            else
-            {
-                Serial.println("Magnet ERROR");
-            }
-            as5047MagOK_old = as5047MagOK;
-        }
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-    }
-}
+//         // take action if global var has changed
+//         if (as5047MagOK_old != as5047MagOK)
+//         {
+//             if (as5047MagOK)
+//             {
+//                 Serial.println("Magnet OK");
+//             }
+//             else
+//             {
+//                 Serial.println("Magnet ERROR");
+//             }
+//             as5047MagOK_old = as5047MagOK;
+//         }
+//         vTaskDelay(100 / portTICK_PERIOD_MS);
+//     }
+// }

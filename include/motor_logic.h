@@ -94,13 +94,13 @@ void updateMotor(void *pvParameters) {
   // Add more natural scaling when we translate from pot to actual FPS
   // These values may be negative, but fscale only handles positive values, so...
 
-  if (FPStemp < 0.0) {
-    // negative FPS values
-    FPStemp = FPStemp * -1.0;                                       // make it positive before fscale function
-    FPStarget = (fscale(0.0, 24.0, 0.0, 24.0, FPStemp, 3) * -1.0);  // reverse log scale and turn it negative again
-  } else {
-    FPStarget = fscale(0.0, 24.0, 0.0, 24.0, FPStemp, 3);  // number is positive so just reverse log scale it
-  }
+  // if (FPStemp < 0.0) {
+  //   // negative FPS values
+  //   FPStemp = FPStemp * -1.0;                                       // make it positive before fscale function
+  //   FPStarget = (fscale(0.0, 24.0, 0.0, 24.0, FPStemp, 3) * -1.0);  // reverse log scale and turn it negative again
+  // } else {
+  //   FPStarget = fscale(0.0, 24.0, 0.0, 24.0, FPStemp, 3);  // number is positive so just reverse log scale it
+  // }
 
   /////////////////////
   // SINGLE FRAME CODE

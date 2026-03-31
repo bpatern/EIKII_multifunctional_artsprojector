@@ -8,32 +8,45 @@
 #include <SimpleKalmanFilter.h>  // https://github.com/denyssene/SimpleKalmanFilter
 #include <Button2.h>             // https://github.com/LennartHennigs/Button2
 
-#include <FastInterruptEncoder.h>
+/* ESP32 FLAGS */
+#define CONFIG_GPTIMER_ISR_HANDLER_IN_IRAM 1
+/***************/
 
 #include <HardwareSerial.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "esp_intr_alloc.h"
-#include "driver/timer.h"
+#include "driver/gptimer.h"
+#include "driver/ledc.h"
+#include "driver/mcpwm_prelude.h"
+#include "driver/GPIO.h"
+#include "driver/spi_master.h"
 // Uncomment ONE of these to load preset configurations from the matching files
 #include "spectral_eiki.h"  // "Store projector-specific settings here"
 //#include "spectral_p26.h" // "Store projector-specific settings here"
 #include "variables.h"
-
-#include "declarations.h"  // "Function declarations for functions defined in later code"
-
 #include "pindef.h"
 
+// static 
+// AS5X47 as5047(EncCSN);
+// // will be used to read data from the magnetic encoder
+// static 
+// ReadDataFrame readDataFrame;
+// 
+int as5047MagOK = 0; // status of magnet near AS5047 sensor
+// 
+int as5047MagOK_old = 0;
+// static int irqCt;
+
+#include "declarations.h"  // "Function declarations for functions defined in later code"
 #include "led.h"
-
 #include "config_functions.h"
-
-
-
-
-
-
+#include "motor_logic.h"
+#include "commander.h"
+#include "ui.h"
+#include "encoder.h"
+#include "esc.h"
 
 
 
@@ -45,58 +58,42 @@ void setup() {
 
 
 
-  if (useAS5047) {
       xTaskCreatePinnedToCore(
         core0setup,
         "core0setup",
-        10000,
+        3000,
         NULL,
         24,
         NULL,
         0
     );
-    }
+     xTaskCreatePinnedToCore(
+        core1setup,
+        "core1setup",
+        3000,
+        NULL,
+        24,
+        NULL,
+        1
+    );
 
-  lightSetup();
+  mathConfig();
 
-  interfaceConfig();
-
-      uartConfig();
-
-
-
-
-    mathConfig();
-
-
-    if (enableShutter != 0) {
-      if (enableShutter == 1) {
-        digitalShutterConfig();
-      } if (enableShutter == 2) {
-        mechanicalShutterConfig();
-      }
-    }
-
-  if (use_HobbywingQuicRun) {
+  // if (use_HobbywingQuicRun) {
   motorConfig();
-  }
-  vTaskDelay(500 / portTICK_PERIOD_MS); // small delay to ensure everything is set up before we start creating tasks
-  shutterMapping = xSemaphoreCreateMutex(); // create the shutter mapping semaphore after the delay to ensure that it is created after the tasks that use it are created, which prevents potential issues with tasks trying to take a semaphore that hasn't been created yet. this is important because the shutter mapping semaphore is used in
-          createTasks();
+  // }
+  createTasks();
 
 
 }
 
-#include "encoder.h"
-
-#include "ui.h"
 
 
-#include "esc.h"
 
-#include "motor_logic.h"
 
-#include "commander.h"
+
+
+
 
 /////////////////////////////////////////////
 //// ---> THE LOOP (runs on core 1) <--- ////
@@ -107,43 +104,6 @@ void loop()
 }
 
 //loop is no longer used due to FreeRTOS tasks.
-
-
-
-
-
-  // These happen once per encoder count (only useful for debugging at slow speeds)
-  // if (countOld != count) {
-  //   if (debugEncoder) {
-  //     Serial.print("Frame: ");
-  //     Serial.print(frame);
-  //     Serial.print(", Frame Old: ");
-  //     Serial.print(frameOldsingle);
-  //     Serial.print(", Count: ");
-  //     Serial.print(count);
-  //     Serial.print(", Single: ");
-  //     Serial.print(as5047.readAngle());
-  //     Serial.print(", Lamp: ");
-  //     Serial.print(shutterMap[count]);
-  //     Serial.print(", Brightness: ");
-  //     Serial.println(ledBright);
-  //   }
-  //   countOld = count;
-  // }
-
-  // // These happen once per frame (only useful for debugging)
-  // if (frameOld != frame) {
-  //   if (debugFrames) {
-  //     Serial.print("FRAME: ");
-  //     Serial.print(frame);
-  //     Serial.print(", FPSreal:");
-  //     Serial.print(FPSreal);
-  //     Serial.print(", FPS avg:");
-  //     Serial.println(FPSrealAvg);
-  //   }
-  //   frameOld = frame;
-  // }
-// }
 
 /////////////////////////////
 //// ---> FUNCTIONS <--- ////

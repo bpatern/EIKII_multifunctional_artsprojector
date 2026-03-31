@@ -20,23 +20,15 @@ static SemaphoreHandle_t controlLock = NULL;
  portMUX_TYPE shutterMappingLock = portMUX_INITIALIZER_UNLOCKED;  // create a spinlock to protect the shutter mapping function that is called in the shutter map update task and uses shared variables
          static SemaphoreHandle_t shutterMapping;
 
+         static SemaphoreHandle_t ledCl = NULL;
+static SemaphoreHandle_t encoderRead = NULL;
 
-static pcnt_config_t as5047_config = {
-        .pulse_gpio_num = 16,
-        .ctrl_gpio_num = 4,
-        
-        .lctrl_mode = PCNT_MODE_KEEP,
-        .hctrl_mode = PCNT_MODE_KEEP,
-        .pos_mode = PCNT_COUNT_INC,
-        .neg_mode = PCNT_COUNT_DEC,
 
-        //shutter blade total pulses
-        .counter_h_lim = 100,
-        .counter_l_lim = -100,
+static SemaphoreHandle_t physinput = NULL;
+static QueueHandle_t ioQ = NULL;
+static TaskHandle_t ioTASKHANDLE = NULL;
 
-        .unit = (pcnt_unit_t) 0,
-        .channel = PCNT_CHANNEL_0,
-    };
+static uint8_t shutterBuffer[4];
 
 
 uint8_t sendingIndividualCommand = 0; //flag to indicate whether we're sending an individual command or the full data string. if 1, we send individual command, if 0 we send full data string. this is to prevent flooding the commander with the full data string when we're just trying to send a single command (like a shutter open/close command from the aux display)
@@ -77,7 +69,7 @@ int motSlewMax = 10000;  // the max slew value when knob is turned up (msec).
 
 // static uint32_t IRAM_ATTR shutterMap[150] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
-IRAM_ATTR uint32_t shutterMap[150];
+ IRAM_ATTR uint32_t shutterMap[150];
 
 
 

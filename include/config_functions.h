@@ -1,4 +1,4 @@
-Encoder enc(EncA, EncB, FULLQUAD, 0);
+// Encoder enc(EncA, EncB, FULLQUAD, 0);
 const int FPSnumReadings = 3;      // how many FPS readings to average together
 float FPSAvgArray[FPSnumReadings]; // the FPS readings array
 int FPSAvgReadIndex = 0;           // the index of the current reading
@@ -49,11 +49,7 @@ Adafruit_NeoPixel pixels(NUMPIXELS, NeoPixelPin, NEO_RGB + NEO_KHZ800);
 
 #if (useAS5047)
 // Start connection to the AS5047sensor.
-static AS5X47 as5047(EncCSN);
-// will be used to read data from the magnetic encoder
-static IRAM_ATTR ReadDataFrame readDataFrame;
-int as5047MagOK = 0; // status of magnet near AS5047 sensor
-int as5047MagOK_old = 0;
+
 
 #endif
 
@@ -65,16 +61,8 @@ TaskHandle_t ledCshutter;
 elapsedMicros framePeriod, countPeriod;
 elapsedMillis timerUI, serialTimerUI, motSingleRunTimer, motModeMidiTimer, midiParseTimer; // MS since last time we checked/updated the user interface
 
-void core0setup(void *parameter) {
-as5047Config();
-gpioConfig();
-vTaskDelete(NULL);
-}
-
-void createTasks() {
-
-
-        q_shutterBlade = xQueueCreate(2, sizeof(int));
+void createObj() {
+            q_shutterBlade = xQueueCreate(2, sizeof(int));
         q_shutterAngle = xQueueCreate(2, sizeof(int)); //shutter angle is never a float in the program which is why i changed it
         q_ledBright = xQueueCreate(36, sizeof(int));
         q_motSpeed = xQueueCreate(36, sizeof(int));
@@ -88,6 +76,38 @@ void createTasks() {
         q_peekLED = xQueueCreate(3, sizeof(int));
     led_iswriting = xSemaphoreCreateMutex(); // create a mutex to manage access to the LED for writing. this is important because we have multiple tasks and ISRs that want to write to the LED, and we need to make sure that only one of them can write to the LED at a time to prevent conflicts and ensure that the LED state is updated correctly based on the most recent data.
     xSemaphoreGive(led_iswriting);           // give the semaphore so that it's available for the first task to take. after that, any task that wants to write to the LED will take this semaphore before writing and give it back after it's done, which ensures that only one task can write to the LED at a time and prevents conflicts between tasks and ISRs when updating the LED state.
+      motPot = xQueueCreate(1, sizeof(int*));
+    ledPot = xQueueCreate(2, sizeof(int*));
+     controlLock = xSemaphoreCreateMutex();
+    xSemaphoreGive(controlLock); // give the semaphore so that it's available for the first task to take. after that, any task that wants to update shared variables will take this semaphore before updating and give it back after it's done, which ensures that only one task can update shared variables at a time and prevents conflicts between tasks.
+      shutterMapping = xSemaphoreCreateMutex(); // create the shutter mapping semaphore after the delay to ensure that it is created after the tasks that use it are created, which prevents potential issues with tasks trying to take a semaphore that hasn't been created yet. this is important because the shutter mapping semaphore is used in
+
+}
+void core0setup(void *parameter) {
+
+    // Serial.println("HELLO");
+      lightSetup();
+as5047Config();
+vTaskDelete(NULL);
+}
+
+void core1setup(void *parameter) {
+    createObj();
+      uartConfig();
+      gpioConfig();
+
+
+
+
+
+    // Serial.println("HELLO");
+vTaskDelete(NULL);
+}
+
+void createTasks() {
+
+
+
 
     xTaskCreatePinnedToCore(
     serialReadTask,
@@ -99,27 +119,6 @@ void createTasks() {
     1
   );
 
-  motPot = xQueueCreate(1, sizeof(int*));
-    ledPot = xQueueCreate(2, sizeof(int*));
-  xTaskCreatePinnedToCore(
-    readUI,
-    "readUI",
-    8000,
-    NULL,
-    16,
-    NULL,
-    1
-  );
-
-//       xTaskCreatePinnedToCore(
-//     as5047MagCheck,
-//     "as5047MagCheck",
-//     3000,
-//     NULL,
-//     10,
-//     NULL,
-//     1
-//   );
 
         xTaskCreatePinnedToCore(
     calcFPS,
@@ -150,7 +149,7 @@ void createTasks() {
     "readEncoder",
     10000,
     NULL,
-    configMAX_PRIORITIES - 1,
+    configMAX_PRIORITIES - 2,
     NULL,
     0
     );
@@ -193,17 +192,16 @@ void createTasks() {
 void interfaceConfig()
 {
 
-    controlLock = xSemaphoreCreateMutex();
-    xSemaphoreGive(controlLock); // give the semaphore so that it's available for the first task to take. after that, any task that wants to update shared variables will take this semaphore before updating and give it back after it's done, which ensures that only one task can update shared variables at a time and prevents conflicts between tasks.
-    if (enableStatusLed)
-    {
-          pixels.begin();                // INITIALIZE NeoPixel object
-            updateStatusLED(0, 30, 0, 0);  // start with LED red while booting
-        if (statusLedColor == 1) {
-          updateStatusLED(0, 18, 16, 10);  // white LED at idle
-        }
+   
+    // if (enableStatusLed)
+    // {
+    //       pixels.begin();                // INITIALIZE NeoPixel object
+    //         updateStatusLED(0, 30, 0, 0);  // start with LED red while booting
+    //     if (statusLedColor == 1) {
+    //       updateStatusLED(0, 18, 16, 10);  // white LED at idle
+    //     }
 
-    }
+    // }
     // if (enableSafeSwitch)
     // {
     //     pinMode(safeSwitch, INPUT_PULLUP);
@@ -237,13 +235,39 @@ void interfaceConfig()
     // }
 }
 
+static TaskHandle_t process = NULL;
+
 void gpioConfig() {
 
-    q_motRunFwd = xQueueCreate(6, sizeof(int));
-    q_motRunBack = xQueueCreate(6, sizeof(int));
-    q_safemode = xQueueCreate(6, sizeof(int));
-    q_buttonF = xQueueCreate(12, sizeof(int));
-    q_buttonR = xQueueCreate(12, sizeof(int));
+
+
+    physinput = xSemaphoreCreateBinary();
+    ioQ = xQueueCreate(12, sizeof(uint32_t));
+
+
+
+    xTaskCreatePinnedToCore(
+        parseIO,
+        "Parse IO",
+        2048,
+        NULL,
+        configMAX_PRIORITIES - 1,
+        &ioTASKHANDLE,
+        1
+    );
+
+        vTaskDelay(500 / portTICK_PERIOD_MS); // small delay to ensure everything is set up before we start creating tasks
+
+
+
+
+    q_motRunFwd = xQueueCreate(2, sizeof(int));
+    q_motRunBack = xQueueCreate(2, sizeof(int));
+    q_safemode = xQueueCreate(2, sizeof(int));
+    q_buttonF = xQueueCreate(6, sizeof(int));
+    q_buttonR = xQueueCreate(6, sizeof(int));
+
+
 
     static gpio_config_t safemode_conf = {
         .pin_bit_mask = 1ULL << safeSwitch,
@@ -288,6 +312,9 @@ void gpioConfig() {
         gpio_config(&btnF_conf);
     gpio_config(&btnR_conf);
 
+    gpio_install_isr_service(0);
+
+
     ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)motDirFwdSwitch, gpioGet, (void*) (gpio_num_t)motDirFwdSwitch)); // attach the interrupt service routine to the GPIO pin for index
     ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)motDirBckSwitch, gpioGet, (void*)(gpio_num_t)motDirBckSwitch)); // attach the interrupt service routine to the GPIO pin for index
     ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)safeSwitch, gpioGet, (void*)(gpio_num_t)safeSwitch)); // attach the interrupt service routine to the GPIO pin for index
@@ -295,95 +322,132 @@ void gpioConfig() {
     ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)buttonBpin, gpioGet, (void*)(gpio_num_t)buttonBpin)); // attach the interrupt service routine to the GPIO pin for index
 
 
-
+  xTaskCreatePinnedToCore(
+    readUI,
+    "readUI",
+    8000,
+    NULL,
+    16,
+    NULL,
+    0
+  );
 
 
 }
 
+static spi_device_handle_t shutter = 0;
+
+
+
 void as5047Config()
 {
-    //mutex means mutual exclusion. we need this to make sure certain things arent being accessed at the same exact time
-    //example: imagine a burger being eaten in a doorless house
-    //what if i was trying to eat a burger and some freak who was able to get in snatched the burger half eaten from my hands
+    // static gpio_config_t index_conf = {
+    //     .pin_bit_mask = 1ULL << EncI,
+    //     .mode = GPIO_MODE_INPUT,
+    //     .pull_up_en = GPIO_PULLUP_ENABLE,
+    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
+    //     .intr_type = GPIO_INTR_DISABLE
+    // };
+    // gpio_config(&index_conf);
 
-    // now i'd only have half a burger of satisfaction and so would the burger thief.
-    //now imagine if the completion of the burger meal was the key to world peace. now everythings fucked
+    // static gpio_config_t encA_conf = {
+    //     .pin_bit_mask = 1ULL << EncA, // we can set both encoder pins to trigger the same interrupt since we read both pin states in the ISR and can determine the direction and amount of rotation based on those states
+    //     .mode = GPIO_MODE_INPUT,
+    //     .pull_up_en = GPIO_PULLUP_ENABLE,
+    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
+    //     .intr_type = GPIO_INTR_DISABLE // we want to trigger on both edges to ensure we catch every single change in the encoder state, which allows us to have more accurate readings of the encoder position and speed, which is crucial for the performance of the system. if we only triggered on one edge, we would only be able to detect half of the changes in the encoder state, which would lead to less accurate readings and potentially cause issues with the motor control and shutter timing.
+    // };
+    // gpio_config(&encA_conf);
 
-    //mutex is kinda like locking a door to make sure just one person can eat the burger at a time
-    //you can decide when to unlock that door
+    // static gpio_config_t encB_conf = {
+    //     .pin_bit_mask = 1ULL << EncB, // we can set both encoder pins to trigger the same interrupt since we read both pin states in the ISR and can determine the direction and amount of rotation based on those states
+    //     .mode = GPIO_MODE_INPUT,
+    //     .pull_up_en = GPIO_PULLUP_ENABLE,
+    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
+    //     .intr_type = GPIO_INTR_DISABLE // we want to trigger on both edges to ensure we catch every single change in the encoder state, which allows us to have more accurate readings of the encoder position and speed, which is crucial for the performance of the system. if we only triggered on one edge, we would only be able to detect half of the changes in the encoder state, which would lead to less accurate readings and potentially cause issues with the motor control and shutter timing.
+    // };
+    // gpio_config(&encB_conf);
 
     
-
-        // attachInterrupt(EncA, pinChangeISR, CHANGE);
-    // attachInterrupt(EncB, pinChangeISR, CHANGE);
-
-
-
-
+    // encoderMutex = xSemaphoreCreateMutex();
+    // xSemaphoreGive(encoderMutex); // give the semaphore so that it's available for the first interrupt to take. after that, the interrupt will give it back after it's done updating shared variables, and then other interrupts can take it again when they need to update shared variables. this ensures that only one interrupt can update shared variables at a time, which prevents
+    // spiRead = xSemaphoreCreateMutex();
+    // xSemaphoreGive(spiRead); // give the semaphore so that it's available for the first SPI read. after that, any task that wants to read from the AS5047 will take this semaphore before reading and give it back after it's done, which ensures that only one task can read from the AS5047 at a time and prevents conflicts on the SPI bus.
+    // encoderRead = xSemaphoreCreateBinary();
 
 
-    static gpio_config_t index_conf = {
-        .pin_bit_mask = 1ULL << EncI,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
-    gpio_config(&index_conf);
+    // spi_bus_config_t encoderBus = {
+    //     .mosi_io_num = (gpio_num_t)EncMOSI,
+    //     .miso_io_num = (gpio_num_t)EncMISO,
+    //     .sclk_io_num = (gpio_num_t)EncCLK,
+    //     .isr_cpu_id = ESP_INTR_CPU_AFFINITY_0,
+    // };
 
-    static gpio_config_t encA_conf = {
-        .pin_bit_mask = 1ULL << EncA, // we can set both encoder pins to trigger the same interrupt since we read both pin states in the ISR and can determine the direction and amount of rotation based on those states
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE // we want to trigger on both edges to ensure we catch every single change in the encoder state, which allows us to have more accurate readings of the encoder position and speed, which is crucial for the performance of the system. if we only triggered on one edge, we would only be able to detect half of the changes in the encoder state, which would lead to less accurate readings and potentially cause issues with the motor control and shutter timing.
-    };
-    gpio_config(&encA_conf);
+    // spi_bus_initialize(SPI3_HOST, &encoderBus, SPI_DMA_CH_AUTO);
 
-    static gpio_config_t encB_conf = {
-        .pin_bit_mask = 1ULL << EncB, // we can set both encoder pins to trigger the same interrupt since we read both pin states in the ISR and can determine the direction and amount of rotation based on those states
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE // we want to trigger on both edges to ensure we catch every single change in the encoder state, which allows us to have more accurate readings of the encoder position and speed, which is crucial for the performance of the system. if we only triggered on one edge, we would only be able to detect half of the changes in the encoder state, which would lead to less accurate readings and potentially cause issues with the motor control and shutter timing.
-    };
-    gpio_config(&encB_conf);
+    // spi_device_interface_config_t encoderInterface = {
+    //     .command_bits = 16,
+    //     .address_bits = 14,
+    //     // .dummy_bits = 1,
+    //     .mode = 1,
+    //     .clock_source = SPI_CLK_SRC_APB,
+    //     .duty_cycle_pos = 0, //half
+    //     .clock_speed_hz = SPI_MASTER_FREQ_10M,
+    //     .spics_io_num = (gpio_num_t)EncCSN,
+    //     .queue_size = 2,
+    // };
 
-gpio_install_isr_service(0); // install GPIO ISR service with default configuration
-// ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)EncA, send_LEDC, NULL)); // attach the interrupt service routine to the GPIO pin for channel A
-// ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)EncB, send_LEDC, NULL)); // attach the interrupt service routine to the GPIO pin for channel B
-// ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)EncI, indexISR, NULL)); // attach the interrupt service routine to the GPIO pin for index
+    // spi_bus_add_device(SPI3_HOST, &encoderInterface, &shutter);
+    // // typedef union 
+    // // {
     
-          encoderMutex = xSemaphoreCreateMutex();
-          xSemaphoreGive(encoderMutex); // give the semaphore so that it's available for the first interrupt to take. after that, the interrupt will give it back after it's done updating shared variables, and then other interrupts can take it again when they need to update shared variables. this ensures that only one interrupt can update shared variables at a time, which prevents
-            spiRead = xSemaphoreCreateMutex();
-            xSemaphoreGive(spiRead); // give the semaphore so that it's available for the first SPI read. after that, any task that wants to read from the AS5047 will take this semaphore before reading and give it back after it's done, which ensures that only one task can read from the AS5047 at a time and prevents conflicts on the SPI bus.
-//       if (enc.init()) {
-//     Serial.println("Encoder Initialization OK");
-//   } else {
-//     Serial.println("Encoder Initialization Failed");
-//     while(1);
-//   }
+    //     //using settings registers from AS5X47 library, so do not untag the lib!!
+    //     Settings1 setting1;
+    //     setting1.values.dir = encoderDir;
+    // setting1.values.daecdis = 1;
+    // spi_transaction_t settings1 = {
+    //     .cmd = SETTINGS1_REG,
+    //     .addr = (uint16_t)setting1.raw,
+    //     .length = 16,
+    // };
+
+    //     Settings2 setting2;
+
+    // spi_transaction_t settings2 = {
+    //     .cmd = SETTINGS2_REG,
+    //     .addr = (uint16_t)setting2.raw,
+    //     .length = 16,
+    // };
+
+    // Mag cordicVal;
+
+    // spi_transaction_t getCordic = {
+    //     .cmd = ANGLE_REG,
+    //     .addr = cordicVal.raw,
+    //     .length = 16,
+    //     .rx_buffer = &shutterBuffer
+
+    // };
 
 
-    abOld = encCount = encCountOld = 0;
-    // Set rotation direction (see AS5047 datasheet page 17)
-    Settings1 settings1;
-    settings1.values.dir = encoderDir;
-        settings1.values.daecdis = 1;
 
-    as5047.writeSettings1(settings1);
-    // Set ABI output resolution (see AS5047 datasheet page 19)
-    // (pulses per rev: 5 = 50 pulses, 6 = 25 pulses, 7 = 8 pulses)
-    Settings2 settings2;
-    settings2.values.abires = 2; // 25 pulses per rev = 100 transitions. This is what we want.
-    as5047.writeSettings2(settings2);
-    // Disable ABI output when magnet error (low or high) exists (see AS5047 datasheet page 24)
-    Zposl zposl;
-    Zposm zposm;
-    zposl.values.compLerrorEn = 1;
-    zposl.values.compHerrorEn = 1;
-    as5047.writeZeroPosition(zposm, zposl);
+    // abOld = encCount = encCountOld = 0;
+    // // Set rotation direction (see AS5047 datasheet page 17)
+    // Settings1 settings1;
+
+
+    // as5047.writeSettings1(settings1);
+    // // Set ABI output resolution (see AS5047 datasheet page 19)
+    // // (pulses per rev: 5 = 50 pulses, 6 = 25 pulses, 7 = 8 pulses)
+    // Settings2 settings2;
+    // settings2.values.abires = 2; // 25 pulses per rev = 100 transitions. This is what we want.
+    // as5047.writeSettings2(settings2);
+    // // Disable ABI output when magnet error (low or high) exists (see AS5047 datasheet page 24)
+    // Zposl zposl;
+    // Zposm zposm;
+    // zposl.values.compLerrorEn = 1;
+    // zposl.values.compHerrorEn = 1;
+    // as5047.writeZeroPosition(zposm, zposl);
 
 }
 
@@ -395,35 +459,67 @@ void mathConfig() {
 }
 
 void motorConfig() {
-      // Motor PWM setup
-  ledcSetup(motPWMChannel, motPWMFreq, motPWMRes);  // configure motor PWM function using LEDC channel
-  ledcAttachPin(escPin, motPWMChannel);             // attach the LEDC channel to the GPIO to be controlled
+    //   Motor PWM setup
 
-  //it's important to send the ESC a "0" speed signal (1500us) whenever the motor is stopped. Otherwise the ESC goes into "failsafe" mode thinking that our RC car has lost contact with the TX!
-  ledcWrite(motPWMChannel, (1 << motPWMRes) * 1500 / motPWMPeriod);  // duty = # of values at current res * US / pulse period
-  Serial.print("Sending neutral signal to ESC...");
-  delay(4000);
-  Serial.println("Done");
-    ledcWrite(motPWMChannel, (1 << motPWMRes) * 1375 / motPWMPeriod);  // duty = # of values at current res * US / pulse period
+      static mcpwm_timer_config_t motPWM = {
+        .group_id = 0,
+        .clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT,
+        .resolution_hz = motPWMRes,
+        .count_mode = MCPWM_TIMER_COUNT_MODE_UP,
+        .period_ticks = 20000
+      };
+
+      static mcpwm_timer_handle_t motPWMTimer = NULL;
+      mcpwm_new_timer(&motPWM, &motPWMTimer);
+
+      static mcpwm_operator_config_t motPWMCFG = {
+        .group_id = 0,
+      };
+
+      static mcpwm_oper_handle_t motOper = NULL;
+      mcpwm_new_operator(&motPWMCFG, &motOper);
+      mcpwm_operator_connect_timer(motOper, motPWMTimer);
+
+      static mcpwm_generator_config_t motGen = {
+        .gen_gpio_num = escPin,
+      };
+      static mcpwm_gen_handle_t motGenerator = NULL;
+      mcpwm_new_generator(motOper, &motGen, &motGenerator);
+
+
+//   ledcSetup(motPWMChannel, motPWMFreq, motPWMRes);  // configure motor PWM function using LEDC channel
+//   ledcAttachPin(escPin, motPWMChannel);             // attach the LEDC channel to the GPIO to be controlled
+
+//   it's important to send the ESC a "0" speed signal (1500us) whenever the motor is stopped. Otherwise the ESC goes into "failsafe" mode thinking that our RC car has lost contact with the TX!
+
+
+//   ledcWrite(motPWMChannel, (1 << motPWMRes) * 1500 / motPWMPeriod);  // duty = # of values at current res * US / pulse period
+//   Serial.print("Sending neutral signal to ESC...");
+//   delay(4000);
+//   Serial.println("Done");
+//     ledcWrite(motPWMChannel, (1 << motPWMRes) * 1375 / motPWMPeriod);  // duty = # of values at current res * US / pulse period
 
 }
 
-void digitalShutterConfig() {
-    //   shutterQueue(shutterBlades, shutterAngle);  //generate initial shutter map ... (1, 0.05 = 1 PPF and narrowest shutter angle)
-    
-}
 
 void mechanicalShutterConfig() {
       // Motor PWM setup for mechanical shutter control (same as motorConfig but with different channel and pin)
-    ledcSetup(ledChannel, ledBrightFreq, ledBrightRes);   // configure LED PWM function using LEDC channel
-    ledcAttachPin(ledPin, ledChannel); // attach the LEDC channel to the GPIO to be controlled
-    ledcWrite(ledChannel, 1); // turn it off if inverted
+        ledc_timer_config_t led_Timer = {
+
+    };
+
+    ledc_channel_config_t led_Channel = {
+
+    };
+
+    ledc_timer_config(&led_Timer);
+    ledc_channel_config(&led_Channel);
     //ledupdate function needs to happen earlier.
 }
 
 void uartConfig() {
 
-      Serial.begin(921600);  // Setup Serial Monitor
+
 
     //characters stored as integers because they really are integers!!!!!!!!!!!! rah!!!!
     const uart_port_t uart_num = UART_NUM_2;
@@ -438,12 +534,12 @@ void uartConfig() {
 };
 
 ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, 2048, 0, 0, NULL, 0)); // set rx buffer size to 2048 and no tx buffer since we're not using it. also no queue since we'll be using our own FreeRTOS queue
-vTaskDelay(100 / portTICK_PERIOD_MS); // small delay to ensure driver is installed before configuring parameters
 ESP_ERROR_CHECK(uart_param_config(UART_NUM_2, &commanderlink));
 ESP_ERROR_CHECK(uart_set_pin(UART_NUM_2, auxTransmitter, auxReceiver, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE)); //last two are for handshake pins. didnt know these exist but might be useful since the run is internal and thus i can do whatever i want
 // ESP_ERROR_CHECK(uart_isr_free(UART_NUM_2));
 // ESP_ERROR_CHECK(uart_isr_register(UART_NUM_2,uart_intr_handle, NULL, ESP_INTR_FLAG_IRAM, &handle_console));
 // ESP_ERROR_CHECK(uart_enable_rx_intr(UART_NUM_2));
+Serial2.flush();
 Serial2.begin(57600);
 
 
@@ -470,8 +566,8 @@ xTaskCreatePinnedToCore(
     NULL,
     1
 );
-
-  vTaskDelay(200/portTICK_PERIOD_MS); // give some time for the serial monitor to connect before we start sending debug info
+      Serial.begin(57600);  // Setup Serial Monitor
+      Serial.flush();
   Serial.println("-----------------------------");
   Serial.println("SPECTRAL Projector Controller");
   Serial.println("-----------------------------");
@@ -483,11 +579,34 @@ void lightSetup() {
     if(LedInvert) {
         //above function inverts the led pin at a lower(?) level. this should make writing lamp functions easier
     }
-    ledcSetup(ledChannel, ledBrightFreq, ledBrightRes);   // configure LED PWM function using LEDC channel
-    ledcAttachPin(ledPin, ledChannel); // attach the LEDC channel to
 
-            GPIO.func_out_sel_cfg[ledPin].inv_sel = 1;
+    static ledc_timer_config_t led_Timer = {
+        .speed_mode = LEDC_HIGH_SPEED_MODE,
+        .duty_resolution = LEDC_TIMER_12_BIT,
+        .timer_num = LEDC_TIMER_0,
+        .freq_hz = 19000
+    };
 
-    ledcWrite(ledChannel, 0);
+    static ledc_channel_config_t led_Channel = {
+        .gpio_num = ledPin,
+        .speed_mode = LEDC_HIGH_SPEED_MODE,
+        .channel = LEDC_CHANNEL_0,
+        .timer_sel = LEDC_TIMER_0,
+        .duty = 0,
+
+    };
+
+    ledc_timer_config(&led_Timer);
+
+    led_Channel.flags.output_invert = true; 
+
+    ledc_channel_config(&led_Channel);
+
+
+    // ledcSetup(ledChannel, ledBrightFreq, ledBrightRes);   // configure LED PWM function using LEDC channel
+    // ledcAttachPin(ledPin, ledChannel); // attach the LEDC channel to
+
+
+    // ledcWrite(ledChannel, 0);
 }
 

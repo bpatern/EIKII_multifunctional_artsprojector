@@ -15,6 +15,7 @@ static IRAM_ATTR int ledBright;
 static IRAM_ATTR int openCl;
 static IRAM_ATTR uint64_t ledWrite_period;
 
+    static gptimer_handle_t watchdawg = NULL;
 
 void IRAM_ATTR send_LEDC()
 {
@@ -26,15 +27,21 @@ void IRAM_ATTR send_LEDC()
 
         if (openCl == 0 )
         {
-            ledcWrite(ledChannel, 4097);
+            // ledcWrite(ledChannel, 4097);
+            ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
         }
         else if (openCl == 1)
         {
-            ledcWrite(ledChannel, ledBright);
+            // ledcWrite(ledChannel, ledBright);
+            ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, ledBright);
+
         }
-    
-    timer_pause(TIMER_GROUP_1, TIMER_0);
-    timer_get_counter_value(TIMER_GROUP_1, TIMER_0, &ledWrite_period);
-    timer_set_counter_value(TIMER_GROUP_1, TIMER_0, 0);
+        ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
+        
+
+        // gptimer_stop(watchdawg);
+        // gptimer_get_raw_count(watchdawg, &ledWrite_period);
+        // gptimer_set_raw_count(watchdawg, 0);
+        // Serial.println(ledWrite_period);
 
 }

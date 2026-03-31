@@ -1,12 +1,10 @@
-static int irqCt;
+
 
 static volatile uint64_t last_isr_time = 0;
 #define DEBOUNCE_DELAY_US 10000ULL  // Debounce delay in microseconds (50 ms)
-    static uint8_t gpio_level = 0;
 
 static void IRAM_ATTR gpioGet(void *arg) 
 {
-
   uint64_t now = esp_timer_get_time();
 
   if (now - last_isr_time > DEBOUNCE_DELAY_US) {
@@ -15,46 +13,31 @@ static void IRAM_ATTR gpioGet(void *arg)
 
     BaseType_t higher_priority_task_woken = pdFALSE;
     last_isr_time = now;
-
-
-    gpio_level++;
-    if (gpio_level > 1)
-    {
-      gpio_level = 0;
+    xQueueSendFromISR(ioQ, &gpio_num, &higher_priority_task_woken);
+    xSemaphoreGiveFromISR(physinput, &higher_priority_task_woken);
+    vTaskResume(ioTASKHANDLE);
+    
+    if (higher_priority_task_woken) {
+        portYIELD_FROM_ISR();
     }
-    if (gpio_num == motDirFwdSwitch)
-    {
-      xQueueSendFromISR(q_motRunFwd, &gpio_level, NULL);
-    }
-
-    else if (gpio_num == motDirBckSwitch)
-    {
-      xQueueSendFromISR(q_motRunBack, &gpio_level, NULL);
-    }
-
-    else if (gpio_num == safeSwitch)
-    {
-      xQueueSendFromISR(q_safemode, &gpio_level, NULL);
-    }
-
-    else if (gpio_num == buttonApin)
-    {
-      xQueueSendFromISR(q_buttonF, &gpio_level, NULL);
-    }
-
-    else if (gpio_num == buttonBpin)
-    {
-      xQueueSendFromISR(q_buttonR, &gpio_level, NULL);
-    }
-
-
-
-    // if (higher_priority_task_woken) {
-    //     portYIELD_FROM_ISR();
-    // }
+}
 }
 
+static void parseIO(void *pvparemeters) {
+  static uint32_t whatio;
+  for(;;)
+  {
+    xSemaphoreTake(physinput, portMAX_DELAY);
+
+    xQueueReceive(ioQ, &whatio, portMAX_DELAY);
+
+    Serial.println(whatio);
+
+    vTaskSuspend(NULL);
+  }
 }
+
+
 
 void readUI(void *pvparemeters) { 
 
@@ -65,11 +48,11 @@ void readUI(void *pvparemeters) {
     static int motSlewValOld;
     static int ledSlewVal;
 
-    static int fwdS = 9;
-    static int revS= 9;
-    static int safeS= 9;
-    static int btnF= 9;
-    static int btnR= 9;
+    static IRAM_ATTR int fwdS = 9;
+    static IRAM_ATTR int revS= 9;
+    static IRAM_ATTR int safeS= 9;
+    static IRAM_ATTR int btnF= 9;
+    static IRAM_ATTR int btnR= 9;
 
 
 
@@ -136,8 +119,9 @@ static rampInt ledAvg; // ramp object for LED brightness slewing
       }
 
 
-          Serial.print(ledWrite_period);
-          Serial.println(" micros");
+// Serial.print(ledWrite_period);
+// Serial.println("uS");
+
 
 
       // Serial.print(fwdS);
@@ -170,7 +154,7 @@ static rampInt ledAvg; // ramp object for LED brightness slewing
       // We're in one of the single modes, so ...
       ledPotVal = ledPotVal * safeMin;  // dim lamp to min safe brightness immediately
     } else {
-      safeSpeedMult = fscale(4, 24.0, safeMin, 1.0, abs(FPSrealAvg), 0);  // safety multiplier for FPS (with optional nonlinear scaling)
+      // safeSpeedMult = fscale(4, 24.0, safeMin, 1.0, abs(FPSrealAvg), 0);  // safety multiplier for FPS (with optional nonlinear scaling)
       safeSpeedMult = constrain(safeSpeedMult, safeMin, 1.0);             // clip values
       ledPotVal = ledPotVal * safeSpeedMult;                              // decrease brightness to prevent film burns
     }
@@ -239,13 +223,13 @@ void calcFPS(void *pvParameters) { for(;;) { //moveto core 0 with related interr
     FPSrealAvg = 0;
   }
   float FPSunsigned = abs(FPSrealAvg);
-  if (FPSunsigned > 23.5 && FPSunsigned < 24.5) {
-    updateStatusLED(0, 0, 30, 0);  // green LED at 24fps
-  } else if (FPSunsigned > 17.5 && FPSunsigned < 18.5) {
-    updateStatusLED(0, 20, 0, 16);  // purple LED at 18fps
-  } else {
-    updateStatusLED(0, 18, 16, 10);  // white LED at idle
-  }
+  // if (FPSunsigned > 23.5 && FPSunsigned < 24.5) {
+  //   updateStatusLED(0, 0, 30, 0);  // green LED at 24fps
+  // } else if (FPSunsigned > 17.5 && FPSunsigned < 18.5) {
+  //   updateStatusLED(0, 20, 0, 16);  // purple LED at 18fps
+  // } else {
+  //   updateStatusLED(0, 18, 16, 10);  // white LED at idle
+  // }
   vTaskDelay(200 / portTICK_PERIOD_MS);
 }
 }
