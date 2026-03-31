@@ -15,7 +15,6 @@ static IRAM_ATTR int remap;
 static void IRAM_ATTR shutterRead(spi_transaction_t *val) 
 {
         static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        xSemaphoreGiveFromISR(encoderRead, &xHigherPriorityTaskWoken);
         if(&xHigherPriorityTaskWoken)
             {
                 portYIELD_FROM_ISR();
@@ -56,7 +55,6 @@ void IRAM_ATTR processVal(void *pvParameters)
 void IRAM_ATTR readEncoder(void *pvParameters)
 {
 
-    ledCl = xSemaphoreCreateBinary();
     const bool a_r = true;
 
         vTaskDelay(250 / portTICK_PERIOD_MS); // small delay to ensure everything is set up before we start creating tasks
@@ -131,7 +129,6 @@ void IRAM_ATTR readEncoder(void *pvParameters)
     {
 
         xSemaphoreTake(ledCl, portMAX_DELAY);
-        // Serial.println("X");
         // gptimer_start(watchdawg);
         // xQueueReceive(q_shutterBlade, &shutterBl, 1);  // receive shutter blade value from UI task via queue
         // xQueueReceive(q_shutterAngle, &shutterAng, 1); // receive shutter angle value from UI task via queue
@@ -160,9 +157,14 @@ void IRAM_ATTR readEncoder(void *pvParameters)
                 }
             }
         }
-
+        // if (xSemaphoreTake(encoderRead, 2) == pdTRUE){
         // ang = map(as5047.readAngle(), 0, 360, 0, 150);
+            Serial.println(readAngleBuffer(true));
+
             ang = 0;
+        // xSemaphoreGive(encoderRead);
+        // }
+
         if (shutterMap[ang] == 1)
         {
             shutterVal = 1;
@@ -177,6 +179,7 @@ void IRAM_ATTR readEncoder(void *pvParameters)
 
         shutterBlOld = shutterBl;
         shutterAngOld = shutterAng;
+
     }
 }
 

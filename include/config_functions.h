@@ -94,15 +94,23 @@ vTaskDelete(NULL);
 void core1setup(void *parameter) {
     createObj();
       uartConfig();
-      gpioConfig();
 
+xTaskCreatePinnedToCore(
+        core0setup,
+        "core0setup",
+        3000,
+        NULL,
+        24,
+        NULL,
+        0
+    );
 
-
-
+          gpioConfig();
 
     // Serial.println("HELLO");
 vTaskDelete(NULL);
 }
+
 
 void createTasks() {
 
@@ -334,120 +342,20 @@ void gpioConfig() {
 
 
 }
-
 static spi_device_handle_t shutter = 0;
 
 
 
 void as5047Config()
 {
-    // static gpio_config_t index_conf = {
-    //     .pin_bit_mask = 1ULL << EncI,
-    //     .mode = GPIO_MODE_INPUT,
-    //     .pull_up_en = GPIO_PULLUP_ENABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_DISABLE
-    // };
-    // gpio_config(&index_conf);
+        encoderRead = xSemaphoreCreateBinary();
+    ledCl = xSemaphoreCreateBinary();
 
-    // static gpio_config_t encA_conf = {
-    //     .pin_bit_mask = 1ULL << EncA, // we can set both encoder pins to trigger the same interrupt since we read both pin states in the ISR and can determine the direction and amount of rotation based on those states
-    //     .mode = GPIO_MODE_INPUT,
-    //     .pull_up_en = GPIO_PULLUP_ENABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_DISABLE // we want to trigger on both edges to ensure we catch every single change in the encoder state, which allows us to have more accurate readings of the encoder position and speed, which is crucial for the performance of the system. if we only triggered on one edge, we would only be able to detect half of the changes in the encoder state, which would lead to less accurate readings and potentially cause issues with the motor control and shutter timing.
-    // };
-    // gpio_config(&encA_conf);
-
-    // static gpio_config_t encB_conf = {
-    //     .pin_bit_mask = 1ULL << EncB, // we can set both encoder pins to trigger the same interrupt since we read both pin states in the ISR and can determine the direction and amount of rotation based on those states
-    //     .mode = GPIO_MODE_INPUT,
-    //     .pull_up_en = GPIO_PULLUP_ENABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_DISABLE // we want to trigger on both edges to ensure we catch every single change in the encoder state, which allows us to have more accurate readings of the encoder position and speed, which is crucial for the performance of the system. if we only triggered on one edge, we would only be able to detect half of the changes in the encoder state, which would lead to less accurate readings and potentially cause issues with the motor control and shutter timing.
-    // };
-    // gpio_config(&encB_conf);
+    configEncoderSPI(1);
+    //argument passes the core number the readings happen on//
 
     
-    // encoderMutex = xSemaphoreCreateMutex();
-    // xSemaphoreGive(encoderMutex); // give the semaphore so that it's available for the first interrupt to take. after that, the interrupt will give it back after it's done updating shared variables, and then other interrupts can take it again when they need to update shared variables. this ensures that only one interrupt can update shared variables at a time, which prevents
-    // spiRead = xSemaphoreCreateMutex();
-    // xSemaphoreGive(spiRead); // give the semaphore so that it's available for the first SPI read. after that, any task that wants to read from the AS5047 will take this semaphore before reading and give it back after it's done, which ensures that only one task can read from the AS5047 at a time and prevents conflicts on the SPI bus.
-    // encoderRead = xSemaphoreCreateBinary();
 
-
-    // spi_bus_config_t encoderBus = {
-    //     .mosi_io_num = (gpio_num_t)EncMOSI,
-    //     .miso_io_num = (gpio_num_t)EncMISO,
-    //     .sclk_io_num = (gpio_num_t)EncCLK,
-    //     .isr_cpu_id = ESP_INTR_CPU_AFFINITY_0,
-    // };
-
-    // spi_bus_initialize(SPI3_HOST, &encoderBus, SPI_DMA_CH_AUTO);
-
-    // spi_device_interface_config_t encoderInterface = {
-    //     .command_bits = 16,
-    //     .address_bits = 14,
-    //     // .dummy_bits = 1,
-    //     .mode = 1,
-    //     .clock_source = SPI_CLK_SRC_APB,
-    //     .duty_cycle_pos = 0, //half
-    //     .clock_speed_hz = SPI_MASTER_FREQ_10M,
-    //     .spics_io_num = (gpio_num_t)EncCSN,
-    //     .queue_size = 2,
-    // };
-
-    // spi_bus_add_device(SPI3_HOST, &encoderInterface, &shutter);
-    // // typedef union 
-    // // {
-    
-    //     //using settings registers from AS5X47 library, so do not untag the lib!!
-    //     Settings1 setting1;
-    //     setting1.values.dir = encoderDir;
-    // setting1.values.daecdis = 1;
-    // spi_transaction_t settings1 = {
-    //     .cmd = SETTINGS1_REG,
-    //     .addr = (uint16_t)setting1.raw,
-    //     .length = 16,
-    // };
-
-    //     Settings2 setting2;
-
-    // spi_transaction_t settings2 = {
-    //     .cmd = SETTINGS2_REG,
-    //     .addr = (uint16_t)setting2.raw,
-    //     .length = 16,
-    // };
-
-    // Mag cordicVal;
-
-    // spi_transaction_t getCordic = {
-    //     .cmd = ANGLE_REG,
-    //     .addr = cordicVal.raw,
-    //     .length = 16,
-    //     .rx_buffer = &shutterBuffer
-
-    // };
-
-
-
-    // abOld = encCount = encCountOld = 0;
-    // // Set rotation direction (see AS5047 datasheet page 17)
-    // Settings1 settings1;
-
-
-    // as5047.writeSettings1(settings1);
-    // // Set ABI output resolution (see AS5047 datasheet page 19)
-    // // (pulses per rev: 5 = 50 pulses, 6 = 25 pulses, 7 = 8 pulses)
-    // Settings2 settings2;
-    // settings2.values.abires = 2; // 25 pulses per rev = 100 transitions. This is what we want.
-    // as5047.writeSettings2(settings2);
-    // // Disable ABI output when magnet error (low or high) exists (see AS5047 datasheet page 24)
-    // Zposl zposl;
-    // Zposm zposm;
-    // zposl.values.compLerrorEn = 1;
-    // zposl.values.compHerrorEn = 1;
-    // as5047.writeZeroPosition(zposm, zposl);
 
 }
 

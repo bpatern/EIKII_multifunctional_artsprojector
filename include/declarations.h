@@ -34,6 +34,8 @@ void debugTask(void *pvParameters);
 static void IRAM_ATTR gpioGet(void *arg);
 static void IRAM_ATTR shutterRead(spi_transaction_t *val);
 void IRAM_ATTR processVal(void *pvParameters);
+void IRAM_ATTR configEncoderSPI(uint16_t coreID);
+void IRAM_ATTR readAngle_raw (void *pvParams); 
 
 
 // static void IRAM_ATTR gpioGet(void *arg);

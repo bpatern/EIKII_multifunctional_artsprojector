@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>   // https://github.com/adafruit/Adafruit_NeoPixel
 
-#include <AS5X47.h>              // https://github.com/adrien-legrand/AS5X47
+// #include <AS5X47.h>              // https://github.com/adrien-legrand/AS5X47
 #include <elapsedMillis.h>       // https://github.com/pfeerick/elapsedMillis
 #include <Ramp.h>                // https://github.com/siteswapjuggler/RAMP
 #include <SimpleKalmanFilter.h>  // https://github.com/denyssene/SimpleKalmanFilter
@@ -34,9 +34,9 @@
 // static 
 // ReadDataFrame readDataFrame;
 // 
-int as5047MagOK = 0; // status of magnet near AS5047 sensor
+// int as5047MagOK = 0; // status of magnet near AS5047 sensor
 // 
-int as5047MagOK_old = 0;
+// int as5047MagOK_old = 0;
 // static int irqCt;
 
 #include "declarations.h"  // "Function declarations for functions defined in later code"
@@ -45,6 +45,7 @@ int as5047MagOK_old = 0;
 #include "motor_logic.h"
 #include "commander.h"
 #include "ui.h"
+#include <dma_spiencoder_implementation.h>
 #include "encoder.h"
 #include "esc.h"
 
@@ -57,17 +58,7 @@ int as5047MagOK_old = 0;
 void setup() {
 
 
-
-      xTaskCreatePinnedToCore(
-        core0setup,
-        "core0setup",
-        3000,
-        NULL,
-        24,
-        NULL,
-        0
-    );
-     xTaskCreatePinnedToCore(
+           xTaskCreatePinnedToCore(
         core1setup,
         "core1setup",
         3000,
@@ -76,6 +67,8 @@ void setup() {
         NULL,
         1
     );
+      
+
 
   mathConfig();
 
