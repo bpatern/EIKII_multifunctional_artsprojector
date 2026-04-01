@@ -1,5 +1,3 @@
-
-
 static volatile uint64_t last_isr_time = 0;
 #define DEBOUNCE_DELAY_US 10000ULL  // Debounce delay in microseconds (50 ms)
 
@@ -33,6 +31,17 @@ static void parseIO(void *pvparemeters) {
 
     Serial.println(whatio);
 
+    if (whatio == motDirBckSwitch)
+    {
+      motorCommander('r');
+    } else if (whatio == motDirFwdSwitch)
+    {
+      motorCommander('f');
+    } else if (whatio == safeSwitch)
+    {
+      motorCommander('x');
+    }
+
     vTaskSuspend(NULL);
   }
 }
@@ -60,7 +69,7 @@ static rampInt ledAvg; // ramp object for LED brightness slewing
 
     for (;;) {
         // if (xSemaphoreTake(controlLock, portMAX_DELAY) == pdTRUE) {  // take control lock to read UI values and update shared variables that are used in other tasks and ISRs
-        
+
       xQueueReceive(q_motRunFwd, &fwdS, 3);
       xQueueReceive(q_motRunBack, &revS, 3);
       xQueueReceive(q_safemode, &safeS, 3);
@@ -311,41 +320,47 @@ void calcFPS(void *pvParameters) { for(;;) { //moveto core 0 with related interr
 // }
 // #endif
 
-void debugTask(void *pvParameters) { 
+void IRAM_ATTR debugTask(void *pvParameters) { 
     static int startup = 0;
     static int debugcnt1;
     static int debugcnt2;
-    static int ang1;
+    // *ang1 = &ang;
     for(;;) {
 //  if (debug == 1) {
-//                 // Serial.println('');
-//                 for (int indx = 0; indx < 150; indx++)
-//                 {
-//                     if (indx == ang)
-//                     {
-//                       if (shutterMap[indx] == (uint32_t*)1)
-//                       {
-//                         Serial.print("O");
-//                       }
-//                       else if (shutterMap[indx] == 0)
-//                       {
-//                         Serial.print(" ");
-                        
-//                       }
+// static int *ang1;
 
-//                     } else
-//                     {
-//                         if (shutterMap[indx] == (uint32_t*)1)
-//                         {
-//                             Serial.print(" ");
-//                         } else if (shutterMap[indx] == 0)
-//                         {
-//                             Serial.print("X");
-//                         }
-//                     }
-//                 }
-//                 Serial.println(' ');
-//             }
+      // Serial.println("");
+      //           for (int indx = 0; indx < 1024; indx++)
+      //           {
+      //                   Serial.print(shutterMap[indx]);
+      //                       Serial.flush();
+
+
+      //           }
+                //     if (indx == ang)
+                //     {
+                //       if (shutterMap[indx] == 1)
+                //       {
+                //         Serial.print("O");
+                //       }
+                //       else if (shutterMap[indx] == 0)
+                //       {
+                //         Serial.print(" ");
+                        
+                //       }
+
+                //     } else
+                //     {
+                //         if (shutterMap[indx] == 1)
+                //         {
+                //             Serial.print(" ");
+                //         } else if (shutterMap[indx] == 0)
+                //         {
+                //             Serial.print("X");
+                //         }
+                //     }
+                // }
+            
 
 
         
@@ -355,3 +370,50 @@ void debugTask(void *pvParameters) {
           }
 
   } 
+
+  void readShutterControls(void *parameter)
+{ 
+    static int shutBladesVal = 0;
+    static int shutAngleVal = 0;
+
+
+    for (;;)
+    {
+        #if (enableSlewPots)
+        motSlewVal = motSlewPotKalman.updateEstimate(analogRead(motSlewPotPin));
+        // delay(2);
+        ledSlewVal = ledSlewPotKalman.updateEstimate(analogRead(ledSlewPotPin));
+        // delay(2);
+        #endif
+
+        #if (enableShutterPots && enableShutter)
+        if (musicMode == 0)
+        {
+            shutBladesPotVal = shutBladesPotKalman.updateEstimate(analogRead(shutBladesPotPin));
+            if (shutBladesPotVal < 800)
+            {
+                shutBladesVal = 1;
+            }
+            else if (shutBladesPotVal < 2500)
+            {
+                shutBladesVal = 2;
+            }
+            else
+            {
+                shutBladesVal = 3;
+            }
+            shutAnglePotVal = shutAnglePotKalman.updateEstimate(analogRead(shutAnglePotPin));
+            shutAngleVal = map(shutAnglePotVal, 0, 4090, 1, 100); // map ADC input to range of shutter angle
+        }
+        else if (musicMode == 1)
+        {
+            shutBladesPotVal = map(CC2ProjBlades, 0, 100, 0, 4095);
+            // inject values during Music Mode
+        }
+        
+        xQueueSend(q_shutterBlade, &shutBladesVal, 2); // send shutter blade pot value to shutter task via queue
+        xQueueSend(q_shutterAngle, &shutAngleVal, 2);  // send shutter angle pot value to shutter task via queue
+                                                        // clip values
+        #endif
+    }
+}

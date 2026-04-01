@@ -12,10 +12,14 @@ static int shutterOn;
 
 static int ledWriteCount;
 static IRAM_ATTR int ledBright;
+static IRAM_ATTR int openClOld;
+
+static IRAM_ATTR int ledBrightOld;
+
 static IRAM_ATTR int openCl;
 static IRAM_ATTR uint64_t ledWrite_period;
 
-    static gptimer_handle_t watchdawg = NULL;
+static gptimer_handle_t watchdawg = NULL;
 
 void IRAM_ATTR send_LEDC()
 {
@@ -24,24 +28,14 @@ void IRAM_ATTR send_LEDC()
 
     xQueueReceive(q_shutterMap, &openCl, 1); // receive shutter blade value from UI task via queue
 
-
-        if (openCl == 0 )
-        {
-            // ledcWrite(ledChannel, 4097);
+    if (openCl == 0)
+    {
             ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
-        }
-        else if (openCl == 1)
-        {
-            // ledcWrite(ledChannel, ledBright);
+    }
+    else if (openCl == 1)
+    {
             ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, ledBright);
-
-        }
-        ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
-        
-
-        // gptimer_stop(watchdawg);
-        // gptimer_get_raw_count(watchdawg, &ledWrite_period);
-        // gptimer_set_raw_count(watchdawg, 0);
-        // Serial.println(ledWrite_period);
+    }
+    ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
 
 }

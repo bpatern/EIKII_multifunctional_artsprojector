@@ -18,9 +18,10 @@ void calcFPS(void *pvParameters);
 void readUI(void *pvParameters);
 void readEncoder(void *pvParameters);
 void ESCprogram();
+static void motorCommander(char action, int isStill = 0);
 void fixCount();
 void shutterQueue(byte shutterBlades, float shutterAngle);
-void updateShutterMap(void *parameter);
+void readShutterControls(void *parameter);
 void pressed(Button2& btn);
 void released(Button2& btn);
 void change(Button2& btn);
@@ -30,7 +31,7 @@ void lightSetup();
 // prototypes for ISR functions that will be defined in later code
 // (prototype must be declared _before_ we attach interrupt because ESP32 requires "IRAM_ATTR" flag which breaks typical Arduino behavior)
 // static void IRAM_ATTR send_LEDC(void *arg);
-void debugTask(void *pvParameters);
+void IRAM_ATTR debugTask(void *pvParameters);
 static void IRAM_ATTR gpioGet(void *arg);
 static void IRAM_ATTR shutterRead(spi_transaction_t *val);
 void IRAM_ATTR processVal(void *pvParameters);
@@ -47,4 +48,4 @@ static float fscale(float originalMin, float originalMax, float newBegin, float 
 void as5047Config();
 void gpioConfig();
 
-
+static inline uint32_t example_angle_to_compare(int angle);

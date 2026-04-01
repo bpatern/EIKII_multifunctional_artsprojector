@@ -22,17 +22,27 @@ static SemaphoreHandle_t controlLock = NULL;
 
          static SemaphoreHandle_t ledCl = NULL;
 static SemaphoreHandle_t encoderRead = NULL;
+static SemaphoreHandle_t motor_isRunning = NULL;
+static QueueHandle_t runMsg = NULL;
 
 
 static SemaphoreHandle_t physinput = NULL;
 static QueueHandle_t ioQ = NULL;
 static TaskHandle_t ioTASKHANDLE = NULL;
 
+static TaskHandle_t motHandle = NULL;
+
+
 static uint8_t shutterBuffer[4];
 
 
 uint8_t sendingIndividualCommand = 0; //flag to indicate whether we're sending an individual command or the full data string. if 1, we send individual command, if 0 we send full data string. this is to prevent flooding the commander with the full data string when we're just trying to send a single command (like a shutter open/close command from the aux display)
 static intr_handle_t handle_console;
+      static mcpwm_cmpr_handle_t comparator = NULL;
+   static mcpwm_comparator_config_t comparator_config;
+          static mcpwm_oper_handle_t motOper = NULL;
+      static mcpwm_timer_handle_t motPWMTimer = NULL;
+      static mcpwm_gen_handle_t motGenerator = NULL;
 
 int sfRequest;
 int runRequest;
@@ -69,7 +79,9 @@ int motSlewMax = 10000;  // the max slew value when knob is turned up (msec).
 
 // static uint32_t IRAM_ATTR shutterMap[150] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
- IRAM_ATTR uint32_t shutterMap[150];
+//  int *shutterMap = (int *)malloc(sizeof(int) * countsPerFrame);
+ static IRAM_ATTR int ang;
+
 
 
 
@@ -117,6 +129,8 @@ const int motPWMFreq = 50;                // PWM frequency (50Hz is standard for
 int motPWMPeriod = 1000000 / motPWMFreq;  // microseconds per pulse
 
 // volatile bool shutterMap[countsPerFrame];  // array holding values for lamp state at each position of digital shutter
+
+
 volatile bool shutterStateOld = 0;         // stores the on/off state of the shutter from previous encoder position
 static byte abOld;                         // Initialize state
 static int encCount;

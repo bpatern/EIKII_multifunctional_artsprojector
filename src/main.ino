@@ -10,6 +10,10 @@
 
 /* ESP32 FLAGS */
 #define CONFIG_GPTIMER_ISR_HANDLER_IN_IRAM 1
+//logic operations on seperate MCU so these flags *should* be safe
+#define CONFIG_FREERTOS_IN_IRAM 1
+#define CONFIG_SPI_MASTER_IN_IRAM 1
+#define CONFIG_ESP32_REV_MIN ECO3 //check your board first!!! this frees up some ram and speeds things up
 /***************/
 
 #include <HardwareSerial.h>
@@ -22,25 +26,17 @@
 #include "driver/mcpwm_prelude.h"
 #include "driver/GPIO.h"
 #include "driver/spi_master.h"
+#include "esp_task_wdt.h"
 // Uncomment ONE of these to load preset configurations from the matching files
 #include "spectral_eiki.h"  // "Store projector-specific settings here"
 //#include "spectral_p26.h" // "Store projector-specific settings here"
 #include "variables.h"
 #include "pindef.h"
 
-// static 
-// AS5X47 as5047(EncCSN);
-// // will be used to read data from the magnetic encoder
-// static 
-// ReadDataFrame readDataFrame;
-// 
-// int as5047MagOK = 0; // status of magnet near AS5047 sensor
-// 
-// int as5047MagOK_old = 0;
-// static int irqCt;
 
 #include "declarations.h"  // "Function declarations for functions defined in later code"
 #include "led.h"
+#include "hobbywing_commander_functions.h"
 #include "config_functions.h"
 #include "motor_logic.h"
 #include "commander.h"
@@ -57,8 +53,7 @@
 
 void setup() {
 
-
-           xTaskCreatePinnedToCore(
+    xTaskCreatePinnedToCore(
         core1setup,
         "core1setup",
         3000,
@@ -68,19 +63,14 @@ void setup() {
         1
     );
       
-
-
   mathConfig();
-
-  // if (use_HobbywingQuicRun) {
   motorConfig();
-  // }
   createTasks();
-
 
 }
 
 
+//tasks run in the background, check header files to see what does what.
 
 
 
@@ -88,30 +78,13 @@ void setup() {
 
 
 
-/////////////////////////////////////////////
-//// ---> THE LOOP (runs on core 1) <--- ////
-/////////////////////////////////////////////
 
 void loop() 
 {
+          while(1){
+              //this blocks the loop from doing things in the background... even if its empty it steals cycles!
+          }
 }
-
-//loop is no longer used due to FreeRTOS tasks.
-
-/////////////////////////////
-//// ---> FUNCTIONS <--- ////
-/////////////////////////////
-
-// On interrupt, read input pins, compute new state, and adjust count
-
-
-//updated rotary encoder reading to use esp32 hardware sections that look for pulse counts. this way pulses are noticed asynchronously rather than at the time of the interrupt.... the code within the interrupt wasn't really fast enough to both register a change and act on it. now rather than stopping when it notices something it acts more like a bear grabbing a fish from a stream for better or worse!
-//if one were to use a PICO instead, use the PIO to achieve the same. 
-//stm32 based stuff can use hw counters
-
-
-
-
 
 // Read user interface buttons and pots
 // NOTE incurs 12ms blocking delay to help calm down crappy ADC between readings.
@@ -158,73 +131,3 @@ void loop()
 
 //     //inject values during Music Mode
 //   }
-
-
-
-
-
-
-
-//   if (debugUI) {
-//     if (enableMotSwitch) {
-//       // print selector switch debug info , even though we aren't using it inside this function
-//       // Motor UI is switch + pot, so use normal pot scaling
-//       if (!digitalRead(motDirFwdSwitch)) {
-//         Serial.print("Mot For, ");
-//       } else if (!digitalRead(motDirBckSwitch)) {
-//         Serial.print("Mot Back, ");
-//       } else {
-//         Serial.print("Mot Stop, ");
-//       }
-//     }
-//     Serial.print("Mot Speed: ");
-//     Serial.print(motPotVal);
-// #if (enableSlewPots)
-//     Serial.print(", Mot Slew: ");
-//     Serial.print(motSlewVal);
-// #endif
-//     Serial.print(", Lamp Bright: ");
-//     Serial.print(ledPotVal);
-// #if (enableSlewPots)
-//     Serial.print(", Lamp Slew: ");
-//     Serial.print(ledSlewVal);
-// #endif
-// #if (enableShutterPots)
-//     Serial.print(", Shut Blade: ");
-//     Serial.print(shutBladesPotVal);
-//     Serial.print(", Shut Angle: ");
-//     Serial.print(shutAnglePotVal);
-// #endif
-// #if (enableSafeSwitch)
-//     Serial.print(", Safe Mode: ");
-//     Serial.print(safeMode);
-// #endif
-//     Serial.println("");
-
-//   }
-
-
-
-//   //}
-//   //else{
-
-//   //}
-
-
-
-
-
-
-// compute the real FPS, based on encoder rotation, but averaged to reduce error
-
-
-// compute LED brightness (note that the ISR ultimately controls the LED state if enableShutter = 1)
-
-
-
-
-
-
-
-
-

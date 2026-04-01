@@ -25,7 +25,7 @@ int statusLedColor = 1; //write status into a function
 
 #define useAS5047 1
 
-const int countsPerFrame = 100;   // how many encoder transitions per frame
+const int countsPerFrame = 1024;   // how many encoder transitions per frame
 const int encoderDir = 0;   // Which magnet spin direction matches forward movement? 0 = clockwise, 1 = counter-clockwise
 const float FPSmultiplier = 1; // difference between computed and actual FPS (P26 is not 1:1) 
 
@@ -41,7 +41,7 @@ const float safeMin = 0.6;       // The minimum brightness in safe mode when run
 
 // Debug messages. Use only one. (Warning: debug messages might cause loss of shutter sync. Turn off if not needed.)
 
-static int debug = 0;
+static int debug = 1;
 
 /*
 debug = 1 for shutter graphic representation

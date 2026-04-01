@@ -68,7 +68,6 @@ void createObj() {
         q_motSpeed = xQueueCreate(36, sizeof(int));
         q_shutterMap = xQueueCreate(8, sizeof(int));
         q_spiRead = xQueueCreate(10, sizeof(int)); // queue used as a binary semaphore to manage access to SPI reads from AS5047 sensor. we use a queue instead of a semaphore because we want the option to add more data to this queue in the future if needed without having to change the type of synchronization primitive we're using. currently we just send an int (with value 0) to this queue whenever a task wants to read from the AS5047, and then receive from the queue after the read is done to allow other tasks to read from the AS5047.
-        // xSemaphoreGive(shutterMapping); // give the semaphore so that it's available for the first task to take. after that, any task that wants to update the shutter map will take this semaphore before updating and give it back after it's done, which ensures that only one task can update the shutter map at a time and prevents conflicts between tasks. this is important because updating the shutter map involves multiple steps and we want to make sure those steps are not interrupted by another task trying to update the shutter map at the same time, which could lead to inconsistent or corrupted shutter map data being sent to the LED task and used in the LED ISR.
         q_actualShutterMap = xQueueCreate(100, sizeof(char)); // this queue is used to send the actual shutter map (as opposed to the desired shutter map) to the LED task so that it can update the LED brightness accordingly in real time based on how many blades are actually open
         q_intr1_hasRun = xQueueCreate(1, sizeof(int)); // this queue is used to send a value to the shutter task to indicate that the LED ISR has run at least once, which we use as a signal to start sending the shutter map to the LED task via its queue
         q_intr2_hasRun = xQueueCreate(1, sizeof(int)); // this queue is used to send a value to the shutter task to indicate that the encoder pin change ISR has run at least once, which we use as a signal to start sending the actual shutter map position to the LED task via its queue so that the LED task can update the LED brightness accordingly in real time based on how many blades are actually open
@@ -104,10 +103,7 @@ xTaskCreatePinnedToCore(
         NULL,
         0
     );
-
           gpioConfig();
-
-    // Serial.println("HELLO");
 vTaskDelete(NULL);
 }
 
@@ -139,8 +135,8 @@ void createTasks() {
   );
 
               xTaskCreatePinnedToCore(
-                updateShutterMap,
-                "updateShutter",
+                readShutterControls,
+                "read shutter controls",
                 8000,
                 NULL,
                 15,
@@ -152,15 +148,7 @@ void createTasks() {
 
 
 
-          xTaskCreatePinnedToCore(
-    readEncoder,
-    "readEncoder",
-    10000,
-    NULL,
-    configMAX_PRIORITIES - 2,
-    NULL,
-    0
-    );
+          
 
       xTaskCreatePinnedToCore(
     updateMotor,
@@ -172,76 +160,20 @@ void createTasks() {
     1
   );
 
-  if (debug==1 ) {
+  if (debug==4 ) {
     xTaskCreatePinnedToCore(
         debugTask,
         "debugTask",
-        5000,
+        10000,
         NULL,
-        12,
+        20,
         NULL,
         1
     );
   }
     
-
-
-    
-        // xTaskCreatePinnedToCore(
-    // pcISRCORE,
-    // "pcISR",
-    // 10000,
-    // NULL,
-    // 24,
-    // &pcISR,
-    // 0);
-
 }
-void interfaceConfig()
-{
 
-   
-    // if (enableStatusLed)
-    // {
-    //       pixels.begin();                // INITIALIZE NeoPixel object
-    //         updateStatusLED(0, 30, 0, 0);  // start with LED red while booting
-    //     if (statusLedColor == 1) {
-    //       updateStatusLED(0, 18, 16, 10);  // white LED at idle
-    //     }
-
-    // }
-    // if (enableSafeSwitch)
-    // {
-    //     pinMode(safeSwitch, INPUT_PULLUP);
-    // }
-
-    // if (enableMotSwitch)
-    // {
-    //     pinMode(motDirFwdSwitch, INPUT_PULLUP);
-    //     pinMode(motDirBckSwitch, INPUT_PULLUP);
-    // }
-    // if (enableButtons)
-    // {
-    //     buttonA.begin(buttonApin, INPUT_PULLUP, true);
-    //     buttonA.setDebounceTime(20);
-    //     // buttonA.setPressedHandler(pressed);
-    //     // buttonA.setReleasedHandler(released);
-
-    //     buttonB.begin(buttonBpin, INPUT_PULLUP, true);
-    //     buttonB.setDebounceTime(20);
-    //     // buttonB.setPressedHandler(pressed);
-    //     // buttonB.setReleasedHandler(released);
-
-    //     if (digitalRead(buttonApin) == 0)
-    //     {
-    //         // Program the ESC settings if user holds down buttonA during startup
-
-    //         ESCprogram();
-    //         while (1)
-    //             ; // don't continue setup since the ESC needs to be rebooted before we can continue
-    //     }
-    // }
-}
 
 static TaskHandle_t process = NULL;
 
@@ -342,29 +274,28 @@ void gpioConfig() {
 
 
 }
+
 static spi_device_handle_t shutter = 0;
-
-
 
 void as5047Config()
 {
-        encoderRead = xSemaphoreCreateBinary();
+    encoderRead = xSemaphoreCreateBinary();
     ledCl = xSemaphoreCreateBinary();
 
     configEncoderSPI(1);
     //argument passes the core number the readings happen on//
 
-    
-
-
 }
 
 void mathConfig() {
+
       for (int thisReading = 0; thisReading < FPSnumReadings; thisReading++) {
     FPSAvgArray[thisReading] = 0;
   }
 
 }
+
+
 
 void motorConfig() {
     //   Motor PWM setup
@@ -372,27 +303,56 @@ void motorConfig() {
       static mcpwm_timer_config_t motPWM = {
         .group_id = 0,
         .clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT,
-        .resolution_hz = motPWMRes,
+        .resolution_hz = SERVO_TIMEBASE_RESOLUTION_HZ,
         .count_mode = MCPWM_TIMER_COUNT_MODE_UP,
-        .period_ticks = 20000
+        .period_ticks = SERVO_TIMEBASE_PERIOD
       };
 
-      static mcpwm_timer_handle_t motPWMTimer = NULL;
       mcpwm_new_timer(&motPWM, &motPWMTimer);
 
       static mcpwm_operator_config_t motPWMCFG = {
         .group_id = 0,
       };
 
-      static mcpwm_oper_handle_t motOper = NULL;
       mcpwm_new_operator(&motPWMCFG, &motOper);
       mcpwm_operator_connect_timer(motOper, motPWMTimer);
+
+   
+    comparator_config.flags.update_cmp_on_tez = true;
+
+    mcpwm_new_comparator(motOper, &comparator_config, &comparator);
+
+    mcpwm_comparator_set_compare_value(comparator, example_angle_to_compare(0));
 
       static mcpwm_generator_config_t motGen = {
         .gen_gpio_num = escPin,
       };
-      static mcpwm_gen_handle_t motGenerator = NULL;
       mcpwm_new_generator(motOper, &motGen, &motGenerator);
+
+    mcpwm_generator_set_action_on_timer_event(motGenerator, MCPWM_GEN_TIMER_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY, MCPWM_GEN_ACTION_HIGH));
+    mcpwm_generator_set_action_on_compare_event(motGenerator, MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, comparator, MCPWM_GEN_ACTION_LOW));
+    mcpwm_timer_enable(motPWMTimer);
+    mcpwm_timer_start_stop(motPWMTimer, MCPWM_TIMER_START_NO_STOP);
+
+    
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    xTaskCreatePinnedToCore(
+        motHandler,
+        "motor driver",
+        2000,
+        NULL,
+        16,
+        &motHandle,
+        1
+    );
+
+    vTaskSuspend(motHandle);
+
+    //sets up semaphores as well//
+    motorCommander('i');
+    //
+
 
 
 //   ledcSetup(motPWMChannel, motPWMFreq, motPWMRes);  // configure motor PWM function using LEDC channel
@@ -422,14 +382,12 @@ void mechanicalShutterConfig() {
 
     ledc_timer_config(&led_Timer);
     ledc_channel_config(&led_Channel);
-    //ledupdate function needs to happen earlier.
 }
 
 void uartConfig() {
 
 
 
-    //characters stored as integers because they really are integers!!!!!!!!!!!! rah!!!!
     const uart_port_t uart_num = UART_NUM_2;
 
     uart_config_t commanderlink = {
@@ -475,7 +433,6 @@ xTaskCreatePinnedToCore(
     1
 );
       Serial.begin(57600);  // Setup Serial Monitor
-      Serial.flush();
   Serial.println("-----------------------------");
   Serial.println("SPECTRAL Projector Controller");
   Serial.println("-----------------------------");
@@ -484,37 +441,40 @@ xTaskCreatePinnedToCore(
 }
 
 void lightSetup() {
-    if(LedInvert) {
-        //above function inverts the led pin at a lower(?) level. this should make writing lamp functions easier
-    }
+
 
     static ledc_timer_config_t led_Timer = {
         .speed_mode = LEDC_HIGH_SPEED_MODE,
         .duty_resolution = LEDC_TIMER_12_BIT,
-        .timer_num = LEDC_TIMER_0,
-        .freq_hz = 19000
+        .timer_num = LEDC_TIMER_3,
+        .freq_hz = 17000
     };
 
     static ledc_channel_config_t led_Channel = {
         .gpio_num = ledPin,
         .speed_mode = LEDC_HIGH_SPEED_MODE,
         .channel = LEDC_CHANNEL_0,
-        .timer_sel = LEDC_TIMER_0,
+        .timer_sel = LEDC_TIMER_3,
         .duty = 0,
 
     };
 
     ledc_timer_config(&led_Timer);
+    if(LedInvert) {
+        led_Channel.flags.output_invert = true; 
 
-    led_Channel.flags.output_invert = true; 
-
+    }
     ledc_channel_config(&led_Channel);
 
+    xTaskCreatePinnedToCore(
+    readEncoder,
+    "readEncoder",
+    10000,
+    NULL,
+    configMAX_PRIORITIES - 2,
+    NULL,
+    0
+    );
 
-    // ledcSetup(ledChannel, ledBrightFreq, ledBrightRes);   // configure LED PWM function using LEDC channel
-    // ledcAttachPin(ledPin, ledChannel); // attach the LEDC channel to
-
-
-    // ledcWrite(ledChannel, 0);
 }
 
