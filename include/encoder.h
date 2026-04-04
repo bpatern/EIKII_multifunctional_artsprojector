@@ -1,12 +1,18 @@
 
-static IRAM_ATTR int shutterVal = 1;
-static IRAM_ATTR int shutterBl = 2;
+// static IRAM_ATTR uint32_t shutterVal;
+static IRAM_ATTR uint32_t shutterBl = 2;
+static uint32_t *shutterBlPtr = &shutterBl;
 
-static IRAM_ATTR int shutterAng;
+
+static IRAM_ATTR int shutterAng = 25;
+static int *shutterAngPtr = &shutterAng;
+
 static IRAM_ATTR int shutterBlOld;
 static IRAM_ATTR int shutterAngOld;
-static IRAM_ATTR float shAngF;
-    static int *ang1 = &ang;
+
+
+static int firstRun;
+
 
 static IRAM_ATTR int wrCt;
 static IRAM_ATTR int remap;
@@ -16,50 +22,100 @@ static spi_transaction_t sb;
 #define TIMER_DIVIDER 80
 #define tickPeriod 10
 
-static gptimer_handle_t ledtick = NULL;
 
 
 bool IRAM_ATTR ledClock(gptimer_handle_t, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
     static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    // gptimer_stop(ledtick);
+    gptimer_set_raw_count(ledtick, 0);
 
     xSemaphoreGiveFromISR(ledCl, &xHigherPriorityTaskWoken);
 
     return xHigherPriorityTaskWoken == pdTRUE;
 }
 
+// void IRAM_ATTR ledClock(void *arg)
+// {
+//     static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+
+//     xSemaphoreGiveFromISR(ledCl, &xHigherPriorityTaskWoken);
+
+
+// }
+
 void IRAM_ATTR readEncoder(void *pvParameters)
 {
 
+    
+    // static int *shutterMap = (int*)calloc(countsPerFrame, sizeof(int));
+
+    //   for (int myBlade = 0; myBlade < shutterBl; myBlade++)
+    //         {
+    //             int countOffset = myBlade * (1024 / shutterBl);
+    //             for (int myCount = 0; myCount < 1024 / shutterBl; myCount++)
+    //             {
+    //                 if (myCount < (1024 / shutterBl * shAngF))
+    //                 {
+    //                     shutterMap[myCount + countOffset] = 0;
+    //                 }
+    //                 else
+    //                 {
+    //                     shutterMap[myCount + countOffset] = 1;
+    //                 }
+    //             }
+    //         }
+
+
+
+
     const bool a_r = true;
 
-        vTaskDelay(250 / portTICK_PERIOD_MS); // small delay to ensure everything is set up before we start creating tasks
+    vTaskDelay(250 / portTICK_PERIOD_MS); // small delay to ensure everything is set up before we start creating tasks
 
 
    static gptimer_config_t clocktimer = {
         .clk_src = GPTIMER_CLK_SRC_APB,
         .direction = GPTIMER_COUNT_UP,
-        .resolution_hz = 1000000,
+        .resolution_hz = 1*1000*1000,
         .intr_priority = 0
     };
-        gptimer_new_timer(&clocktimer, &ledtick);
 
 
     static gptimer_event_callbacks_t clockCB = {
         .on_alarm = ledClock,
     };
 
-    gptimer_register_event_callbacks(ledtick, &clockCB, NULL);
 
 
     static gptimer_alarm_config_t ledAlarm = {
-        .alarm_count = 1000,
+        .alarm_count = 4800,
         .reload_count = 0,
     };
     ledAlarm.flags.auto_reload_on_alarm = true;
-    gptimer_set_alarm_action(ledtick, &ledAlarm);
 
-    gptimer_enable(ledtick);
+
+//     firstRun = 1;
+   
+    
+
+    // xSemaphoreGive(ledCl);
+
+
+
+                gptimer_new_timer(&clocktimer, &ledtick);
+                gptimer_register_event_callbacks(ledtick, &clockCB, NULL);
+                gptimer_enable(ledtick);
+                    gptimer_set_raw_count(ledtick, 0);
+
+                    gptimer_set_alarm_action(ledtick, &ledAlarm);
+                
+
+
+
+
+
 
 
 /* 
@@ -71,16 +127,18 @@ I believe we can use this for quicker draws. Now, i will have to consider the sp
 */
 
     // int *shutterMap = (int *)malloc(sizeof(int) * countsPerFrame);
-    static bool shutterMap[1024];
-    // memset(shutterMap, false, countsPerFrame*sizeof(bool));
-
-        gptimer_start(ledtick);
 
 
     for (;;)
     {
 
-        xSemaphoreTake(ledCl, portMAX_DELAY);
+
+
+
+
+
+        // xSemaphoreTake(ledCl, portMAX_DELAY);
+
         xQueueReceive(q_shutterBlade, &shutterBl, 1);  // receive shutter blade value from UI task via queue
         xQueueReceive(q_shutterAngle, &shutterAng, 1); // receive shutter angle value from UI task via queue
 
@@ -89,20 +147,20 @@ I believe we can use this for quicker draws. Now, i will have to consider the sp
         }
         else
         {
-            shAngF = (100.0f - (float)shutterAng) * (1/100.0f);
-            if (shutterMap == NULL) {
-                Serial.println("memory error");
-            }
+
+                *shAngFptr = (100.0 - shutterAng) * (1/100.0);
+                                // *shAngFptr = 0.5;
 
 
-            for (int myBlade = 0; myBlade < shutterBl; myBlade++)
+
+            for (int myBlade = 0; myBlade < *shutterBlPtr; myBlade++)
             {
-                int countOffset = myBlade * (1024 / shutterBl);
-                for (int myCount = 0; myCount < 1024 / shutterBl; myCount++)
+                int countOffset = myBlade * (1024 / *shutterBlPtr);
+                for (int myCount = 0; myCount < 1024 / *shutterBlPtr; myCount++)
                 {
-                    if (myCount < (1024 / shutterBl * shAngF))
+                    if (myCount < (1024 / *shutterBlPtr * *shAngFptr))
                     {
-                        shutterMap[myCount + countOffset] = 0;
+                        shutterMap[(myCount + countOffset)] = 0;
                     }
                     else
                     {
@@ -111,25 +169,51 @@ I believe we can use this for quicker draws. Now, i will have to consider the sp
                 }
             }
         }
-        
-        ang = map(readAngleBuffer(true), 0, 16384, 0, 1024);
+        shutterBlOld = *shutterBlPtr;
+        shutterAngOld = *shutterAngPtr;
 
-        if (shutterMap[ang] == true)
+
+        
+        ang = map(readAngle_raw(ANGLE_REG), 0, 16384, 0, 1024);
+                // ang = map(readAngle_raw(ANGLE_REG), 0, 16384, 0, 1024);
+
+                // ang = 10;
+
+        // Serial.println(ang);
+        // Smap = 
+
+        if (shutterMap[ang] == 1)
         {
             shutterVal = 1;
 
         }
-        else if (shutterMap[ang] == false)
+        else if (shutterMap[ang] == 0)
         {
             shutterVal = 0;
 
         }
 
         xQueueSend(q_shutterMap, &shutterVal, 1); // send updated shutter map to shutter task via queue
-        send_LEDC();
 
-        shutterBlOld = shutterBl;
-        shutterAngOld = shutterAng;
+
+        
+        send_LEDC('l');
+
+            // uint64_t timer1;
+    // gptimer_get_raw_count(ledtick, &timer1);
+    
+
+        // xSemaphoreGive(ledCl);
+
+
+
+
+
+
+
+
+
+        
 
     }
 }

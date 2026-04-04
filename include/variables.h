@@ -4,11 +4,14 @@ int motExtSwitch = 0;
 volatile int motModeMidi;
 int musicMode = 0;
 
-static QueueHandle_t outCommanderQueue;
+    static uint64_t ledtimer;
+
+
+static QueueHandle_t outCommanderQueue, customBrightness;
 static QueueHandle_t q_shutterBlade, q_shutterAngle, q_ledBright, q_motSpeed, q_spiRead, q_actualShutterMap;
 static QueueHandle_t motPot, ledPot, shutBladePot, shutAnglePot;
 static QueueHandle_t q_intr1_hasRun, q_intr2_hasRun, q_debugShutterPosition;
-static QueueHandle_t q_motRunFwd,q_motRunBack,q_safemode, q_buttonF, q_buttonR;
+static QueueHandle_t q_motRunFwd,q_motRunBack,q_safemode, q_buttonF, q_buttonR, q_whichbutton;
 // static QueueHandle_t q_shutterMap;
 static QueueHandle_t q_shutterMap, q_peekLED;
     static SemaphoreHandle_t encoderMutex = NULL; // create a mutex to protect the encoder count variable that is updated in the ISR and read in the main loop
@@ -23,17 +26,61 @@ static SemaphoreHandle_t controlLock = NULL;
          static SemaphoreHandle_t ledCl = NULL;
 static SemaphoreHandle_t encoderRead = NULL;
 static SemaphoreHandle_t motor_isRunning = NULL;
+static SemaphoreHandle_t singleFraming = NULL;
 static QueueHandle_t runMsg = NULL;
 
 
 static SemaphoreHandle_t physinput = NULL;
 static QueueHandle_t ioQ = NULL;
+
 static TaskHandle_t ioTASKHANDLE = NULL;
+static const char * ioTH = "io task handle";
 
-static TaskHandle_t motHandle = NULL;
+static TaskHandle_t motContinuousHandle = NULL;
+static const char * motCont = "Continuous Motor Function";
+
+static TaskHandle_t singleFrame = NULL;
+static const char * sFF = "Single Frame Function";
+
+static TaskHandle_t ledDraw = NULL;
+static const char * ledDr = "LED controller";
+
+static TaskHandle_t shutterPotTranslate = NULL;
+static const char * shPot = "Shutter Potentiometer";
+
+static TaskHandle_t debugPrinter = NULL;
+static const char * db = "Debug Printer";
+
+static TaskHandle_t motorSlewRead = NULL;
+static const char * slew = "Slewer";
+
+static TaskHandle_t FPSactor = NULL;
+static const char * fpsCalc = "FPS calculator";
+
+static TaskHandle_t externalControlParse = NULL;
+static const char * extCont = "External Control";
+
+static TaskHandle_t internalSerialRX = NULL;
+static const char * iRx = "Internal Serial RX";
+
+static TaskHandle_t internalSerialTX = NULL;
+static const char * iTx = "Internal Serial TX";
+
+static TaskHandle_t readControls = NULL;
+static const char * controlR = "Read LED and motor Pot";
+
+static const char * genPurp = "General Purpose";
+
+static float shAngF;
+static float *shAngFptr = &shAngF;
 
 
-static uint8_t shutterBuffer[4];
+
+static gptimer_handle_t ledtick = NULL;
+
+
+static QueueHandle_t q_actor = NULL;
+
 
 
 uint8_t sendingIndividualCommand = 0; //flag to indicate whether we're sending an individual command or the full data string. if 1, we send individual command, if 0 we send full data string. this is to prevent flooding the commander with the full data string when we're just trying to send a single command (like a shutter open/close command from the aux display)
@@ -80,7 +127,19 @@ int motSlewMax = 10000;  // the max slew value when knob is turned up (msec).
 // static uint32_t IRAM_ATTR shutterMap[150] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 //  int *shutterMap = (int *)malloc(sizeof(int) * countsPerFrame);
- static IRAM_ATTR int ang;
+ static  uint16_t ang;
+ static uint16_t *angle = &ang;
+
+ static volatile uint64_t last_btn_isr_time = 0;
+static volatile uint64_t last_switch_isr_time = 0;
+static  int motDirFwdState = 0;
+static  int motDirBckState = 0;
+static  int buttonApinState = 0;
+static  int *btnA = &buttonApinState;
+static  int buttonBpinState = 0;
+static  int *btnB = &buttonBpinState;
+
+static IRAM_ATTR uint32_t shutterMap[1024];
 
 
 
@@ -98,9 +157,17 @@ static int ledPotVal;  // current value of LED pot (not necessarily the current 
 static int shutBladesPotVal;
 static int shutAnglePotVal;
 static int shutBladesVal;
-static float shutAngleVal;
+static int shutAngleVal;
+  static int shutPotEstimate = 0;
+    static int shutAngEstimate = 0;
+
+static uint32_t shutterVal = 1;
+static uint32_t *shutterValPtr = &shutterVal;
+
 
 // LED VARS //
+  static int ledB = 0;
+  static int *ledBp = &ledB;
 int LedDimMode = 1;               // 0 = current-controlled dimming (NOT YET IMPLEMENTED!), 1 = PWM dimming
 int LedInvert = 1;                // set to 1 to invert LED output signal so it's active-low (required by H6cc driver board)
 // int ledBright = 0;                // current brightness of LED (range depends on Res below. If we're ramping then this will differ from pot value)
@@ -132,7 +199,6 @@ int motPWMPeriod = 1000000 / motPWMFreq;  // microseconds per pulse
 
 
 volatile bool shutterStateOld = 0;         // stores the on/off state of the shutter from previous encoder position
-static byte abOld;                         // Initialize state
 static int encCount;
     static int16_t * encPos;
 //   static int encCountOld;
@@ -158,8 +224,8 @@ volatile float myFPSframe = FPSframe;      // copy volatile FPS to nonvolatile v
 volatile int myMotModeReal = motModeReal;  // copy volatile FPS to nonvolatile variable so it's safe
 
 //calcFPS variables. esp memory was dumping them before...
-boolean newData = false;
-const byte numChars = 32;
+bool newData = false;
+const char numChars = 32;
 char receivedChars[numChars];
 char tempChars[numChars];
 

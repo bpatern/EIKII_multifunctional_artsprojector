@@ -16,12 +16,12 @@
 // INPUT PINS //
 // UI
 #define onboardcontrolPin n/a
-#define motPotPin 33         // analog input for motor speed pot
+#define motPotPin ADC_CHANNEL_5         // analog input for motor speed pot
 #define motSlewPotPin n/a     // analog input for motor slew rate pot
-#define ledPotPin 35         // analog input for LED dimming pot
+#define ledPotPin ADC_CHANNEL_7         // analog input for LED dimming pot
 #define ledSlewPotPin n/a     // analog input for LED dimming slew rate pot
-#define shutBladesPotPin 39  // analog input for # of shutter blades pot
-#define shutAnglePotPin 36   // analog input for shutter angle pot
+#define shutBladesPotPin ADC_CHANNEL_3  // analog input for # of shutter blades pot
+#define shutAnglePotPin ADC_CHANNEL_0   // analog input for shutter angle pot
 #define motDirFwdSwitch 14   // digital input for motor direction switch (forward)
 #define motDirBckSwitch 12   // digital input for motor direction switch (backward)
 #define buttonApin 26        // digital input for button

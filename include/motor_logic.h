@@ -1,95 +1,95 @@
 void updateMotor(void *pvParameters) { 
-  static int motPotVal;
-  static rampInt motAvg; // ramp object for motor speed slewing
+  // static int motPotVal;
+  // static rampInt motAvg; // ramp object for motor speed slewing
 
   for(;;) {
-    // if (xSemaphoreTake(controlLock, portMAX_DELAY) == pdTRUE) {  // take control lock to read UI values and update shared variables that are used in other tasks and ISRs
-      xQueueReceive(motPot, &motPotVal, 10);  // receive motor pot value from UI task via queue
+  //   // if (xSemaphoreTake(controlLock, portMAX_DELAY) == pdTRUE) {  // take control lock to read UI values and update shared variables that are used in other tasks and ISRs
+  //     xQueueReceive(motPot, &motPotVal, 10);  // receive motor pot value from UI task via queue
 
 
-  // mapped/clip motPotVal because kalman filter sometimes doesn't allow us to reach min/max)
-  int motPotClipped = map(motPotVal, 40, 4045, 0, 4095);
-  motPotClipped = constrain(motPotClipped, 0, 4095);
+  // // mapped/clip motPotVal because kalman filter sometimes doesn't allow us to reach min/max)
+  // int motPotClipped = map(motPotVal, 40, 4045, 0, 4095);
+  // motPotClipped = constrain(motPotClipped, 0, 4095);
 
-  // Depending on the motor direction switch, we translate the pot ADC to FPS with optional negative scaling
-  // (The Ramp library is currently set up for ints, so our float FPS is multiplied by 100 to make it int 2400)
-  // The switch and pot combinations are abstracted into MotMode and motPotFPS variables
+  // // Depending on the motor direction switch, we translate the pot ADC to FPS with optional negative scaling
+  // // (The Ramp library is currently set up for ints, so our float FPS is multiplied by 100 to make it int 2400)
+  // // The switch and pot combinations are abstracted into MotMode and motPotFPS variables
 
-  if (enableMotSwitch) {
-    if (motSwitchMode == 1) {
-      // Motor UI = Eiki: FWD/OFF/REV switch + pot, so use normal slow-24fps pot scaling
-      if (!digitalRead(motDirFwdSwitch) || motExtSwitch == 1) {
-        // FORWARD
-        motPotFPS = mapf(motPotClipped, 0, 4095, 10, 2400);  // convert mot pot value to FPS x 100
-        motMode = 1;
-      } else if (!digitalRead(motDirBckSwitch) || motExtSwitch == -1) {
-        // REVERSE
-        motPotFPS = mapf(motPotClipped, 0, 4095, -10, -2400);  // convert mot pot value to FPS x 100
-        motMode = -1;
-      } else {
-        // STOP
-        motPotFPS = 0;
-        motMode = 0;
-        if (opticalPrinter == 0 && motMode == 0) {
-        //   send_LEDC();
-        }
-      }
-    } else {
-      // Motor UI = P26: RUN/STOP switch, FWD/REV switch, and pot, so use normal 0-24fps pot scaling
-      // First we test run/stop switch, then motor direction switch
-      if (!digitalRead(motDirFwdSwitch)) {
-        // RUN
-        if (!digitalRead(motDirBckSwitch)) {
-          // FORWARD
-          motPotFPS = mapf(motPotClipped, 0, 4095, 10, 2400);  // convert mot pot value to FPS x 100
-          motMode = 1;
+  // if (enableMotSwitch) {
+  //   if (motSwitchMode == 1) {
+  //     // Motor UI = Eiki: FWD/OFF/REV switch + pot, so use normal slow-24fps pot scaling
+  //     if (!digitalRead(motDirFwdSwitch) || motExtSwitch == 1) {
+  //       // FORWARD
+  //       motPotFPS = mapf(motPotClipped, 0, 4095, 10, 2400);  // convert mot pot value to FPS x 100
+  //       motMode = 1;
+  //     } else if (!digitalRead(motDirBckSwitch) || motExtSwitch == -1) {
+  //       // REVERSE
+  //       motPotFPS = mapf(motPotClipped, 0, 4095, -10, -2400);  // convert mot pot value to FPS x 100
+  //       motMode = -1;
+  //     } else {
+  //       // STOP
+  //       motPotFPS = 0;
+  //       motMode = 0;
+  //       if (opticalPrinter == 0 && motMode == 0) {
+  //       //   send_LEDC();
+  //       }
+  //     }
+  //   } else {
+  //     // Motor UI = P26: RUN/STOP switch, FWD/REV switch, and pot, so use normal 0-24fps pot scaling
+  //     // First we test run/stop switch, then motor direction switch
+  //     if (!digitalRead(motDirFwdSwitch)) {
+  //       // RUN
+  //       if (!digitalRead(motDirBckSwitch)) {
+  //         // FORWARD
+  //         motPotFPS = mapf(motPotClipped, 0, 4095, 10, 2400);  // convert mot pot value to FPS x 100
+  //         motMode = 1;
 
-        } else {
-          // REVERSE
-          motPotFPS = mapf(motPotClipped, 0, 4095, -10, -2400);  // convert mot pot value to FPS x 100
-          motMode = -1;
-        }
-      } else {
-        // STOP
-        motPotFPS = 0;
-        motMode = 0;
-      }
-    }
-  } else {
-    // Motor UI is only pot, so use Use FORWARD-STOP-BACK pot scaling with deadband in center
-    int bandWidth = 500;  // width of "deadband" in middle of pot range where speed is forced to 0
-    int bandMin = 2048 - bandWidth / 2;
-    int bandMax = 2048 + bandWidth / 2;
+  //       } else {
+  //         // REVERSE
+  //         motPotFPS = mapf(motPotClipped, 0, 4095, -10, -2400);  // convert mot pot value to FPS x 100
+  //         motMode = -1;
+  //       }
+  //     } else {
+  //       // STOP
+  //       motPotFPS = 0;
+  //       motMode = 0;
+  //     }
+  //   }
+  // } else {
+  //   // Motor UI is only pot, so use Use FORWARD-STOP-BACK pot scaling with deadband in center
+  //   int bandWidth = 500;  // width of "deadband" in middle of pot range where speed is forced to 0
+  //   int bandMin = 2048 - bandWidth / 2;
+  //   int bandMax = 2048 + bandWidth / 2;
 
-    if (motPotClipped < bandMin) {
-      motPotFPS = mapf(motPotClipped, 0, bandMin, -2400, 0);
-    } else if (motPotClipped > bandMax) {
-      motPotFPS = mapf(motPotClipped, bandMin, 4095, 0, 2400);
-    } else {
-      motPotFPS = 0;
-    }
-  }
-  if (musicMode == 1) {
-    if (motExtSwitch == 0 || motSwitchMode == 0) {
-      motPotFPS = 0;
-      motMode = 0;
-    }
-  }
+  //   if (motPotClipped < bandMin) {
+  //     motPotFPS = mapf(motPotClipped, 0, bandMin, -2400, 0);
+  //   } else if (motPotClipped > bandMax) {
+  //     motPotFPS = mapf(motPotClipped, bandMin, 4095, 0, 2400);
+  //   } else {
+  //     motPotFPS = 0;
+  //   }
+  // }
+  // if (musicMode == 1) {
+  //   if (motExtSwitch == 0 || motSwitchMode == 0) {
+  //     motPotFPS = 0;
+  //     motMode = 0;
+  //   }
+  // }
 
 
 #if (enableSlewPots)
   motSlewVal = map(motSlewVal, 0, 4095, motSlewMin, motSlewMax);  // turn slew val pot into ms ramp time
 #endif
-  motAvg.update();  // Motor slewing managed by Ramp library
+  // motAvg.update();  // Motor slewing managed by Ramp library
   // if knobs have changed sufficiently, calculate new slewing ramp time
   if (abs(motSlewVal - motSlewValOld) >= 10 || abs(motPotFPS - motPotFPSOld) >= 10) {
     //Serial.println("(MOT RAMP CALC)");
-    motAvg.go(motPotFPS, motSlewVal);  // set next ramp interpolation in ms
+    // motAvg.go(motPotFPS, motSlewVal);  // set next ramp interpolation in ms
     motSlewValOld = motSlewVal;
     motPotFPSOld = motPotFPS;
   }
 
-  float FPStemp = motAvg.getValue() / 100.0;  // use slewed value for target FPS (dividing by 100 to get floating point FPS)
+  // float FPStemp = motAvg.getValue() / 100.0;  // use slewed value for target FPS (dividing by 100 to get floating point FPS)
 
   // Add more natural scaling when we translate from pot to actual FPS
   // These values may be negative, but fscale only handles positive values, so...

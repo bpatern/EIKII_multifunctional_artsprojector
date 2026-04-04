@@ -25,7 +25,6 @@ requires the definition of a shutter count in main config file
 static spi_host_device_t enc = SPI3_HOST;
 static spi_device_handle_t encoder;
 
-static uint8_t rx_buffer[1] = {};
 
 uint8_t IRAM_ATTR calculateParity(uint16_t value)
 {
@@ -72,61 +71,38 @@ void configEncoderSPI(uint16_t coreID)
     ret = spi_bus_add_device(enc, &devcfg, &encoder);
     assert(ret == ESP_OK);
 
-    xTaskCreatePinnedToCore(
-        readAngle_raw,
-        "read angle",
-        5000,
-        NULL,
-        configMAX_PRIORITIES - 3,
-        NULL,
-        coreID);
+    // xTaskCreatePinnedToCore(
+    //     readAngle_raw,
+    //     "read angle",
+    //     6000,
+    //     NULL,
+    //     configMAX_PRIORITIES - 4,
+    //     NULL,
+    //     coreID);
 }
 
-void IRAM_ATTR readAngle_raw(void *pvParams)
+uint16_t IRAM_ATTR readAngle_raw(uint16_t Addr)
 {
-
-    for (;;)
-    {
         uint16_t command = 1 << 14;                            // PAR=0 R/W=R (Read command)
-        command |= ANGLE_REG;                                  // Command to read angle
+        command |= Addr;                                  // Command to read angle
         command |= ((uint16_t)calculateParity(command) << 15); // Adding parity bit
         uint8_t cmd_high = (command >> 8) & 0xFF;
         uint8_t cmd_low = command & 0xFF;
         uint8_t tx_buffer[2] = {cmd_high, cmd_low};
         spi_transaction_t t = {};
-        memset(&t, 0, sizeof(t)); // Zero out the transaction
+        // memset(&t, 0, sizeof(t)); // Zero out the transaction
         t.length = 16;            // 16 bits
         t.tx_buffer = tx_buffer;
         t.rx_buffer = NULL;
         spi_device_transmit(encoder, &t);
-        memset(&t, 0, sizeof(t)); // Zero out the transaction
+        uint8_t rx_buffer[2] = {};
+        // memset(&t, 0, sizeof(t)); // Zero out the transaction
         t.length = 16;            // 16 bits
         t.tx_buffer = NULL;
         t.rxlength = 16; // 16 bits
         t.rx_buffer = &rx_buffer;
         spi_device_transmit(encoder, &t);
-        }
-}
 
-uint16_t IRAM_ATTR readAngleBuffer(bool getraw)
-{
-    uint16_t reg_value;
-    if (getraw == true)
-    {
-        reg_value = (rx_buffer[0] << 8) | rx_buffer[1];
-        //returns value of 16384
-
-    }
-    else if (getraw == false)
-    {
-        reg_value = (rx_buffer[0] << 8) | rx_buffer[1];
-
-        float angle = ((reg_value * 360.0f / 16383.0f) * (PI / 180.0f)); //single point float
-        return angle;
-        //returns float in radians
-
-    }
-
-    return reg_value & 0x3FFF;
-
+        uint16_t reg_value = (rx_buffer[0] << 8) | rx_buffer[1];
+        return reg_value & 0x3FFF;
 }

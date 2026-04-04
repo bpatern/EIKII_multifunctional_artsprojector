@@ -6,29 +6,21 @@ float FPSAvgTotal = 0;             // total of all readings
 
 // Ramp library setup
 
+
+
 // Simple Kalman Filter Library Setup
 // see tuning advice here: https://www.mathworks.com/help/fusion/ug/tuning-kalman-filter-to-improve-state-estimation.html
 // and this playlist: https://www.youtube.com/watch?v=CaCcOwJPytQ&list=PLX2gX-ftPVXU3oUFNATxGXY90AULiqnWT
 float kalmanMEA = 2;   // "measurement noise estimate" (larger = we assmume there is more noise/jitter in input)
 float kalmanQ = 0.010; // "Process Noise" AKA "gain" (smaller = more smoothing but more latency)
 
-static SimpleKalmanFilter motPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-static SimpleKalmanFilter ledPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
 
-#if (enableSlewPots) // if these pots are enabled in the config file,
-SimpleKalmanFilter motSlewPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-SimpleKalmanFilter ledSlewPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-#endif // now we check for the next option, which asks about the
 
-#if (enableShutterPots) // are you using shutter blade angle controls?
-static SimpleKalmanFilter shutBladesPotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-static SimpleKalmanFilter shutAnglePotKalman(kalmanMEA, kalmanMEA, kalmanQ);
-#endif
 
 #if (enableButtons)
 // Bounce2 Library setup for buttons
-Button2 buttonA;
-Button2 buttonB;
+// Button2 buttonA;
+// Button2 buttonB;
 
 bool buttonAstate = 0;
 bool buttonBstate = 0;
@@ -38,7 +30,7 @@ bool buttonBstate = 0;
 // NeoPixel library setup
 #define NUMPIXELS 1 // How many NeoPixels are attached?
 
-Adafruit_NeoPixel pixels(NUMPIXELS, NeoPixelPin, NEO_RGB + NEO_KHZ800);
+// Adafruit_NeoPixel pixels(NUMPIXELS, NeoPixelPin, NEO_RGB + NEO_KHZ800);
 // last argument should match your LED type. Add together as needed:
 //   NEO_KHZ800  800 KHz bitstream (most NeoPixel products w/WS2812 LEDs)
 //   NEO_KHZ400  400 KHz (classic 'v1' (not v2) FLORA pixels, WS2811 drivers)
@@ -63,8 +55,7 @@ elapsedMillis timerUI, serialTimerUI, motSingleRunTimer, motModeMidiTimer, midiP
 
 void createObj() {
             q_shutterBlade = xQueueCreate(2, sizeof(int));
-        q_shutterAngle = xQueueCreate(2, sizeof(int)); //shutter angle is never a float in the program which is why i changed it
-        q_ledBright = xQueueCreate(36, sizeof(int));
+    q_shutterAngle = xQueueCreate(2, sizeof(int)); //shutter angle is never a float in the program which is why i changed it
         q_motSpeed = xQueueCreate(36, sizeof(int));
         q_shutterMap = xQueueCreate(8, sizeof(int));
         q_spiRead = xQueueCreate(10, sizeof(int)); // queue used as a binary semaphore to manage access to SPI reads from AS5047 sensor. we use a queue instead of a semaphore because we want the option to add more data to this queue in the future if needed without having to change the type of synchronization primitive we're using. currently we just send an int (with value 0) to this queue whenever a task wants to read from the AS5047, and then receive from the queue after the read is done to allow other tasks to read from the AS5047.
@@ -76,37 +67,29 @@ void createObj() {
     led_iswriting = xSemaphoreCreateMutex(); // create a mutex to manage access to the LED for writing. this is important because we have multiple tasks and ISRs that want to write to the LED, and we need to make sure that only one of them can write to the LED at a time to prevent conflicts and ensure that the LED state is updated correctly based on the most recent data.
     xSemaphoreGive(led_iswriting);           // give the semaphore so that it's available for the first task to take. after that, any task that wants to write to the LED will take this semaphore before writing and give it back after it's done, which ensures that only one task can write to the LED at a time and prevents conflicts between tasks and ISRs when updating the LED state.
       motPot = xQueueCreate(1, sizeof(int*));
-    ledPot = xQueueCreate(2, sizeof(int*));
+    ledPot = xQueueCreate(8, sizeof(int*));
      controlLock = xSemaphoreCreateMutex();
     xSemaphoreGive(controlLock); // give the semaphore so that it's available for the first task to take. after that, any task that wants to update shared variables will take this semaphore before updating and give it back after it's done, which ensures that only one task can update shared variables at a time and prevents conflicts between tasks.
       shutterMapping = xSemaphoreCreateMutex(); // create the shutter mapping semaphore after the delay to ensure that it is created after the tasks that use it are created, which prevents potential issues with tasks trying to take a semaphore that hasn't been created yet. this is important because the shutter mapping semaphore is used in
+q_ledBright = xQueueCreate(2, sizeof(int));
+    ledCl = xSemaphoreCreateBinary();
+        physinput = xSemaphoreCreateBinary();
+    ioQ = xQueueCreate(1, sizeof(uint32_t));
+        q_motRunFwd = xQueueCreate(1, sizeof(uint8_t));
+    q_motRunBack = xQueueCreate(1, sizeof(uint8_t));
+    q_safemode = xQueueCreate(2, sizeof(uint8_t));
+    q_buttonF = xQueueCreate(2, sizeof(uint8_t));
+    q_buttonR = xQueueCreate(2, sizeof(uint8_t));
+        q_actor = xQueueCreate(2, sizeof(char));
+        outCommanderQueue = xQueueCreate(2, sizeof(char));   
+        runMsg = xQueueCreate(1, sizeof(char));
+    customBrightness = xQueueCreate(3, sizeof(uint16_t));
+    q_whichbutton = xQueueCreate(2, sizeof(char));
+    singleFraming = xSemaphoreCreateBinary();
+    xSemaphoreGive(singleFraming);
+
 
 }
-void core0setup(void *parameter) {
-
-    // Serial.println("HELLO");
-      lightSetup();
-as5047Config();
-vTaskDelete(NULL);
-}
-
-void core1setup(void *parameter) {
-    createObj();
-      uartConfig();
-
-xTaskCreatePinnedToCore(
-        core0setup,
-        "core0setup",
-        3000,
-        NULL,
-        24,
-        NULL,
-        0
-    );
-          gpioConfig();
-vTaskDelete(NULL);
-}
-
 
 void createTasks() {
 
@@ -119,30 +102,28 @@ void createTasks() {
     5000,
     NULL,
     5,
-    NULL,
+    &externalControlParse,
     1
   );
+      vTaskSuspend(externalControlParse);
+
+  
 
 
         xTaskCreatePinnedToCore(
     calcFPS,
     "calcFPS",
-    3000,
+    1500,
     NULL,
     12,
-    NULL,
+    &FPSactor,
     1
   );
 
-              xTaskCreatePinnedToCore(
-                readShutterControls,
-                "read shutter controls",
-                8000,
-                NULL,
-                15,
-                NULL,
-                1
-            );
+        vTaskSuspend(FPSactor);
+
+
+              
 
     
 
@@ -156,21 +137,14 @@ void createTasks() {
     4000,
     NULL,
     14,
-    NULL,
+    &motorSlewRead,
     1
   );
 
-  if (debug==4 ) {
-    xTaskCreatePinnedToCore(
-        debugTask,
-        "debugTask",
-        10000,
-        NULL,
-        20,
-        NULL,
-        1
-    );
-  }
+          vTaskSuspend(motorSlewRead);
+
+
+  
     
 }
 
@@ -181,96 +155,62 @@ void gpioConfig() {
 
 
 
-    physinput = xSemaphoreCreateBinary();
-    ioQ = xQueueCreate(12, sizeof(uint32_t));
-
-
-
-    xTaskCreatePinnedToCore(
-        parseIO,
-        "Parse IO",
-        2048,
-        NULL,
-        configMAX_PRIORITIES - 1,
-        &ioTASKHANDLE,
-        1
-    );
-
-        vTaskDelay(500 / portTICK_PERIOD_MS); // small delay to ensure everything is set up before we start creating tasks
 
 
 
 
-    q_motRunFwd = xQueueCreate(2, sizeof(int));
-    q_motRunBack = xQueueCreate(2, sizeof(int));
-    q_safemode = xQueueCreate(2, sizeof(int));
-    q_buttonF = xQueueCreate(6, sizeof(int));
-    q_buttonR = xQueueCreate(6, sizeof(int));
 
 
 
-    static gpio_config_t safemode_conf = {
-        .pin_bit_mask = 1ULL << safeSwitch,
+    vTaskDelay(500 / portTICK_PERIOD_MS); // small delay to ensure everything is set up before we start creating tasks
+
+
+
+
+    static gpio_config_t switch_conf = {
+        .pin_bit_mask = (1ULL << buttonBpin) | (1ULL << buttonApin) | (1ULL << motDirFwdSwitch) | (1ULL << motDirBckSwitch) | (1ULL << safeSwitch),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_ANYEDGE
+        .intr_type = GPIO_INTR_DISABLE
     };
 
-    static gpio_config_t fwdsw_conf = {
-        .pin_bit_mask = 1ULL << motDirFwdSwitch,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_ANYEDGE
-    };
-        static gpio_config_t revsw_conf = {
-        .pin_bit_mask = 1ULL << motDirBckSwitch,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_ANYEDGE
-    };
-        static gpio_config_t btnF_conf = {
-        .pin_bit_mask = 1ULL << buttonApin,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_ANYEDGE
-    };
-            static gpio_config_t btnR_conf = {
-        .pin_bit_mask = 1ULL << buttonBpin,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_ANYEDGE
-    };
-
-        gpio_config(&safemode_conf);
-        gpio_config(&fwdsw_conf);
-        gpio_config(&revsw_conf);
-        gpio_config(&btnF_conf);
-    gpio_config(&btnR_conf);
 
     gpio_install_isr_service(0);
 
+    gpio_config(&switch_conf);
 
-    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)motDirFwdSwitch, gpioGet, (void*) (gpio_num_t)motDirFwdSwitch)); // attach the interrupt service routine to the GPIO pin for index
-    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)motDirBckSwitch, gpioGet, (void*)(gpio_num_t)motDirBckSwitch)); // attach the interrupt service routine to the GPIO pin for index
-    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)safeSwitch, gpioGet, (void*)(gpio_num_t)safeSwitch)); // attach the interrupt service routine to the GPIO pin for index
-    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)buttonApin, gpioGet, (void*)(gpio_num_t)buttonApin)); // attach the interrupt service routine to the GPIO pin for index
-    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)buttonBpin, gpioGet, (void*)(gpio_num_t)buttonBpin)); // attach the interrupt service routine to the GPIO pin for index
 
+    
+
+
+    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)motDirFwdSwitch, switchGet, (void*) (gpio_num_t)motDirFwdSwitch)); // attach the interrupt service routine to the GPIO pin for index
+    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)motDirBckSwitch, switchGet, (void*)(gpio_num_t)motDirBckSwitch)); // attach the interrupt service routine to the GPIO pin for index
+    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)safeSwitch, switchGet, (void*)(gpio_num_t)safeSwitch)); // attach the interrupt service routine to the GPIO pin for index
+    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)buttonApin, switchGet, (void*)(gpio_num_t)buttonApin)); // attach the interrupt service routine to the GPIO pin for index
+    ESP_ERROR_CHECK(gpio_isr_handler_add((gpio_num_t)buttonBpin, switchGet, (void*)(gpio_num_t)buttonBpin)); // attach the interrupt service routine to the GPIO pin for index
+
+        xTaskCreatePinnedToCore(
+        parseIO,
+        "Parse IO",
+        8000,
+        NULL,
+        configMAX_PRIORITIES - 3,
+        &ioTASKHANDLE,
+        1
+    );
+    vTaskSuspend(ioTASKHANDLE);
 
   xTaskCreatePinnedToCore(
     readUI,
     "readUI",
-    8000,
+    4000,
     NULL,
     16,
-    NULL,
+    &readControls,
     0
   );
+  vTaskSuspend(readControls);
 
 
 }
@@ -280,14 +220,69 @@ static spi_device_handle_t shutter = 0;
 void as5047Config()
 {
     encoderRead = xSemaphoreCreateBinary();
-    ledCl = xSemaphoreCreateBinary();
 
     configEncoderSPI(1);
     //argument passes the core number the readings happen on//
 
 }
 
+
+// ekf_imu13states *motPotKalman = new ekf_imu13states();
+// ekf_imu13states *ledPotKalman = new ekf_imu13states();
+// ekf_imu13states *shutBladesPotKalman = new ekf_imu13states();
+// ekf_imu13states *shutAnglePotKalman = new ekf_imu13states();
+// ekf_imu13states *motSlewPotKalman = new ekf_imu13states();
+// ekf_imu13states *ledSlewPotKalman = new ekf_imu13states();
+
+
+
+ adc_oneshot_unit_handle_t adc_handle;
+
+
+
 void mathConfig() {
+
+    // Initialize ADC Oneshot Mode Driver on the ADC Unit
+    adc_oneshot_unit_init_cfg_t init_config = {
+        .unit_id = ADC_UNIT_1,
+        .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
+    };
+    adc_oneshot_new_unit(&init_config, &adc_handle);
+
+    adc_oneshot_chan_cfg_t config = {
+              .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+  adc_oneshot_config_channel(adc_handle, motPotPin, &config);
+  adc_oneshot_config_channel(adc_handle, ledPotPin, &config);
+  adc_oneshot_config_channel(adc_handle, shutBladesPotPin, &config);
+  adc_oneshot_config_channel(adc_handle, shutAnglePotPin, &config);
+
+
+        xTaskCreatePinnedToCore(
+                readShutterControls,
+                "read shutter controls",
+                2000,
+                NULL,
+                15,
+                &shutterPotTranslate,
+                1
+        );
+
+        vTaskSuspend(shutterPotTranslate);
+  
+
+  // motPotKalman -> Init();
+  // ledPotKalman -> Init();
+  // shutBladesPotKalman -> Init();
+  // shutAnglePotKalman -> Init();
+
+  // motSlewPotKalman -> Init();
+  // motSlewVal -> UpdateRefMeasurement(NULL, motSlewPotPin, kalmanMEA, kalmanQ);
+  // ledSlewPotKalman -> Init();
+  // ledSlewVal -> UpdateRefMeasurement(NULL, ledSlewPotPin, kalmanMEA, kalmanQ);
+
+
 
       for (int thisReading = 0; thisReading < FPSnumReadings; thisReading++) {
     FPSAvgArray[thisReading] = 0;
@@ -335,37 +330,39 @@ void motorConfig() {
     mcpwm_timer_start_stop(motPWMTimer, MCPWM_TIMER_START_NO_STOP);
 
     
-    vTaskDelay(pdMS_TO_TICKS(20));
+    vTaskDelay(pdMS_TO_TICKS(500));
+
 
     xTaskCreatePinnedToCore(
-        motHandler,
-        "motor driver",
-        2000,
+        motConstHandler,
+        "motor continuous movement driver",
+        8000,
         NULL,
         16,
-        &motHandle,
+        &motContinuousHandle,
         1
     );
 
-    vTaskSuspend(motHandle);
+    vTaskSuspend(motContinuousHandle);
+
+    xTaskCreatePinnedToCore(
+        singleFrameHandler,
+        "Single Frame Handler",
+        10000,
+        NULL,
+        20,
+        &singleFrame,
+        1
+    );
+
+    vTaskSuspend(singleFrame);
 
     //sets up semaphores as well//
-    motorCommander('i');
+    char strMsg = 'x';
+    xQueueSend(runMsg, &strMsg, portMAX_DELAY);
+    vTaskResume(motContinuousHandle);
     //
 
-
-
-//   ledcSetup(motPWMChannel, motPWMFreq, motPWMRes);  // configure motor PWM function using LEDC channel
-//   ledcAttachPin(escPin, motPWMChannel);             // attach the LEDC channel to the GPIO to be controlled
-
-//   it's important to send the ESC a "0" speed signal (1500us) whenever the motor is stopped. Otherwise the ESC goes into "failsafe" mode thinking that our RC car has lost contact with the TX!
-
-
-//   ledcWrite(motPWMChannel, (1 << motPWMRes) * 1500 / motPWMPeriod);  // duty = # of values at current res * US / pulse period
-//   Serial.print("Sending neutral signal to ESC...");
-//   delay(4000);
-//   Serial.println("Done");
-//     ledcWrite(motPWMChannel, (1 << motPWMRes) * 1375 / motPWMPeriod);  // duty = # of values at current res * US / pulse period
 
 }
 
@@ -405,12 +402,11 @@ ESP_ERROR_CHECK(uart_set_pin(UART_NUM_2, auxTransmitter, auxReceiver, UART_PIN_N
 // ESP_ERROR_CHECK(uart_isr_free(UART_NUM_2));
 // ESP_ERROR_CHECK(uart_isr_register(UART_NUM_2,uart_intr_handle, NULL, ESP_INTR_FLAG_IRAM, &handle_console));
 // ESP_ERROR_CHECK(uart_enable_rx_intr(UART_NUM_2));
-Serial2.flush();
-Serial2.begin(57600);
+// Serial2.flush();
+// Serial2.begin(57600);
 
 
 
-outCommanderQueue = xQueueCreate(50, sizeof(char*));   
 
 
 xTaskCreatePinnedToCore(
@@ -419,9 +415,10 @@ xTaskCreatePinnedToCore(
     3750,
     NULL,
     14, //this should be sort of high. note to self 2 check and adj +stack size with goated freertos debug toolz
-    NULL,
+    &internalSerialRX,
     1
 );
+vTaskSuspend(internalSerialRX);
 
 xTaskCreatePinnedToCore(
     serial2tx,
@@ -429,13 +426,12 @@ xTaskCreatePinnedToCore(
     3750,
     NULL,
     15,
-    NULL,
+    &internalSerialTX,
     1
 );
-      Serial.begin(57600);  // Setup Serial Monitor
-  Serial.println("-----------------------------");
-  Serial.println("SPECTRAL Projector Controller");
-  Serial.println("-----------------------------");
+vTaskSuspend(internalSerialTX);
+
+
 
 
 }
@@ -446,20 +442,27 @@ void lightSetup() {
     static ledc_timer_config_t led_Timer = {
         .speed_mode = LEDC_HIGH_SPEED_MODE,
         .duty_resolution = LEDC_TIMER_12_BIT,
-        .timer_num = LEDC_TIMER_3,
-        .freq_hz = 17000
+        .timer_num = LEDC_TIMER_1,
+        .freq_hz = 8000,
+        .clk_cfg = LEDC_USE_APB_CLK,
+
     };
+
+
+
 
     static ledc_channel_config_t led_Channel = {
         .gpio_num = ledPin,
         .speed_mode = LEDC_HIGH_SPEED_MODE,
         .channel = LEDC_CHANNEL_0,
-        .timer_sel = LEDC_TIMER_3,
+        .timer_sel = LEDC_TIMER_1,
         .duty = 0,
 
     };
 
+
     ledc_timer_config(&led_Timer);
+    ledc_bind_channel_timer(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, LEDC_TIMER_1);
     if(LedInvert) {
         led_Channel.flags.output_invert = true; 
 
@@ -469,12 +472,16 @@ void lightSetup() {
     xTaskCreatePinnedToCore(
     readEncoder,
     "readEncoder",
-    10000,
+    8000,
     NULL,
     configMAX_PRIORITIES - 2,
-    NULL,
+    &ledDraw,
     0
     );
+    // vTaskSuspend(ledDraw);
+
 
 }
+
+
 
