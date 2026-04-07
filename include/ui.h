@@ -1,26 +1,23 @@
+#define DEBOUNCE_DELAY_US 100000ULL // Debounce delay in microseconds (50 ms)
 
-
-
-
-#define DEBOUNCE_DELAY_US 20000ULL // Debounce delay in microseconds (50 ms)
-
-
-static uint32_t gpio_num;
-static void IRAM_ATTR switchGet(void *arg)
+void IRAM_ATTR switchGet(void *arg)
 {
+  uint32_t gpio_num;
+  static uint64_t last_switch_isr_time = 0;
+
   uint64_t now = esp_timer_get_time();
 
   if (now - last_switch_isr_time > DEBOUNCE_DELAY_US)
   {
-
     gpio_num = (uint32_t)arg;
     BaseType_t higher_priority_task_woken = pdTRUE;
     last_switch_isr_time = now;
+    // xQueueReset(ioQ);
+    //   xQueueReset(runMsg);
 
-    
     xQueueSendFromISR(ioQ, &gpio_num, &higher_priority_task_woken);
-
     xSemaphoreGiveFromISR(physinput, &higher_priority_task_woken);
+        // vTaskResume(ioTASKHANDLE);
 
 
     if (higher_priority_task_woken)
@@ -31,156 +28,103 @@ static void IRAM_ATTR switchGet(void *arg)
   }
 }
 
-
-static IRAM_ATTR void parseIO(void *pvparemeters)
+IRAM_ATTR void parseIO(void *pvparemeters)
 {
   static uint8_t whatio;
+  static char isDir;
+    static char fb;
+
   for (;;)
-  {
-    if (xSemaphoreTake(physinput, 2)== pdTRUE)
-    {
-      xQueueReset(ioQ);
-      xQueueReset(runMsg);
+  {     
 
-    xQueueReceive(ioQ, &whatio, portMAX_DELAY);
-            ESP_LOGI("motCont", "hello %u", whatio);
-
-
-    if(whatio == motDirFwdSwitch)
-    {
-      motDirFwdState++;
-      if(motDirFwdState > 1)
+      if (xQueueReceive(ioQ, &whatio, 10) == pdTRUE)
       {
-        motDirFwdState = 0;
-        char isDir = 'b';
-        xQueueSend(runMsg, &isDir, 2);
+
+      if (whatio == motDirFwdSwitch)
+      {
+        motDirFwdState++;
+        if (motDirFwdState > 1)
+        {
+          motDirFwdState = 0;
+          isDir = 'b';
+          xQueueSend(runMsg, &isDir, portMAX_DELAY);
+        }
+
+        if (motDirFwdState == 1)
+        {
+          isDir = 'f';
+          xQueueSend(runMsg, &isDir, portMAX_DELAY);
+        }
+
+        ESP_LOGI("motCont", "Flevel %u", motDirFwdState);
+
+      }
+      else if (whatio == motDirBckSwitch)
+      {
+        motDirBckState++;
+        if (motDirBckState > 1)
+        {
+          motDirBckState = 0;
+          isDir = 'l';
+          xQueueSend(runMsg, &isDir, 2);
+        }
+        if (motDirBckState == 1)
+        {
+          isDir = 'r';
+          xQueueSend(runMsg, &isDir, 2);
+        }
+        ESP_LOGI("motCont", "Rlevel %u", motDirBckState);
+
+      }
+      else if (whatio == buttonApin)
+      {
+        buttonApinState++;
+        if (buttonApinState > 1)
+        {
+          buttonApinState = 0;
+
+        }
+              fb = 'a';
+
+              vTaskDelay(10);
+
+      }
+      else if (whatio == buttonBpin)
+      {
+        buttonBpinState++;
+        if (buttonBpinState > 1)
+        {
+          buttonBpinState = 0;
+        }
+
+        fb = 'b';
+                      vTaskDelay(10);
+
       }
 
-      if (motDirFwdState == 1)
-      {
-        char isDir = 'f';
-        xQueueSend(runMsg, &isDir, 2);
-      }
-      // xQueueSend(ioQ, &whatio, 1);
+      whatio = 0;
 
-    } else if (whatio == motDirBckSwitch)
-    {
-      motDirBckState++;
-      if(motDirBckState > 1)
-      {
-        motDirBckState = 0;
-        char isDir = 'l';
-        xQueueSend(runMsg, &isDir, 2);
-      }
-      if(motDirBckState == 1)
-      {
-        char isDir = 'r';
-        xQueueSend(runMsg, &isDir, 2);
-      }
-      // xQueueSend(ioQ, &whatio, 1);
-
-    }else if (whatio == buttonApin)
-    {
-      buttonApinState++;
-      if(buttonApinState > 1)
-      {
-        buttonApinState = 0;
-      }
-      singleFrameActor('i', buttonApin, buttonApinState);
-
-    }else if (whatio == buttonBpin)
-    {
-      buttonBpinState++;
-      if(buttonBpinState > 1)
-      {
-        buttonBpinState = 0;
-      }
-      singleFrameActor('i', buttonBpin, buttonBpinState);
-    }
-  xSemaphoreGive(physinput);
-
-
+    
   }
-  vTaskDelay(60);
-
-  }
-}
-  static uint8_t button = 1;
-
-
-static void singleFrameActor(char fromwhere, uint8_t frombutton, uint8_t level)
-{
-
-  button = level;
-  if (fromwhere == 'i')
-  {
-    if (frombutton == buttonApin)
-    {
-      char fb = 'a';
-      xQueueSend(q_buttonF, &button, portMAX_DELAY);
-      xQueueSend(q_whichbutton, &fb, portMAX_DELAY);
-      // motorCommander('f', true);
-
-
-
-    } else if (frombutton == buttonBpin)
-    {
-      char fb = 'b';
-
-      xQueueSend(q_buttonR, &button, portMAX_DELAY);
-      xQueueSend(q_whichbutton, &fb, portMAX_DELAY);
-
-      // motorCommander('r', true);
-    }
   }
 }
-
-IRAM_ATTR char controllerInternalDirection = 'x';
 
 /*supposed to function like a wrapper.
 'i' is for 'i'nterrupt
 'e' is for 'e'xternal
 's' is for 's'ensor */
 
-
-  static int ledSlewValOld;
-  static int ledSlewVal;
-
-  static IRAM_ATTR int fwdS = 9;
-  static IRAM_ATTR int revS = 9;
-  static IRAM_ATTR int safeS = 9;
-  static IRAM_ATTR int btnF = 9;
-  static IRAM_ATTR int btnR = 9;
-  static uint8_t safeModeIs = 0;
-
-  // static rampInt ledAvg; // ramp object for LED brightness slewing
-
-    static int MPotEstimate;
-    static int LEDPotEstimate;
-
+int MPotEstimate;
+int LEDPotEstimate;
 void IRAM_ATTR readUI(void *pvparemeters)
 {
-
-
-
-
 
   for (;;)
   {
 
-    // if (eTaskGetState(ledDraw) == pdTRUE){}
-    // else if (eTaskGetState(ledDraw) == pdFALSE)
-    // {
-
-    // }
-    
-
-
-
-
-            
     adc_oneshot_read(adc_handle, motPotPin, &motPotVal);
     adc_oneshot_read(adc_handle, ledPotPin, &ledPotVal);
+    // ESP_LOGI("pot", "val %u", motPotVal);
     // motPotVal = 2048;
     // ledPotVal = 2048;
 
@@ -188,10 +132,10 @@ void IRAM_ATTR readUI(void *pvparemeters)
     // LEDPotEstimate = ledPotKalman -> UpdateRefMeasurement((float)1.0, (float)ledPotVal, kalmanMEA, kalmanQ);
 
     MPotEstimate = motPotVal;
-    LEDPotEstimate =ledPotVal;
+    LEDPotEstimate = ledPotVal;
 
     // if(eTaskGetState(motorCommander) == pdFALSE)
- 
+
     // motPotVal = motPotKalman.updateEstimate(analogRead(motPotPin));
 
     xQueueSend(motPot, &MPotEstimate, 5); // send motor pot value to motor task via queue
@@ -203,7 +147,7 @@ void IRAM_ATTR readUI(void *pvparemeters)
     {
 
       safeSpeedMult = constrain(safeSpeedMult, safeMin, 1.0); // clip values
-      LEDPotEstimate = LEDPotEstimate * safeSpeedMult;                  // decrease brightness to prevent film burns
+      LEDPotEstimate = LEDPotEstimate * safeSpeedMult;        // decrease brightness to prevent film burns
     }
     // ledAvg.update(); // LED slewing managed by Ramp library
 
@@ -227,17 +171,14 @@ void IRAM_ATTR readUI(void *pvparemeters)
 
     xQueueSend(ledPot, &ledB, 5); // send LED brightness value to LED task via queue
 
-    // xSemaphoreGive(controlLock);  // give back control lock after updating shared variables that are used in other tasks and ISRs
-    vTaskDelay(60 / portTICK_PERIOD_MS);
+    vTaskDelay(10 / portTICK_PERIOD_MS);
   }
 }
 
 void calcFPS(void *pvParameters)
 {
   for (;;)
-  {                              // moveto core 0 with related interrupts
-
-
+  { // moveto core 0 with related interrupts
 
     myFPScount = FPScount;       // copy volatile FPS to nonvolatile variable so it's safe
     myFPSframe = FPSframe;       // copy volatile FPS to nonvolatile variable so it's safe
@@ -282,81 +223,7 @@ void calcFPS(void *pvParameters)
   }
 }
 
-// #if (enableButtons)
-// void pressed(Button2& btn) {
-//   if (btn == buttonA) {
-//     if (buttonAstate == 0) {
-//       if (debugUI) {
-//         Serial.println("Button A pressed");
-//       }
-//       buttonAstate = 1;
-//       if (motSwitchMode) {
-//         // Eiki motor switch mode, so we have a button for each single frame direction
-//         if (motMode == 0) {
-//           motSingle = 1;  // If stopped when button was pressed, set single frame fwd
-//         } else {
-//           motSingle = 2;  // Set freeze frame
-//         }
-//       } else {
-//         // P26 motor switch mode with one button, so we use a specific mode
-//         motSingle = 3;
-//       }
-//     }
-//   } else if (btn == buttonB) {
-//     if (buttonBstate == 0) {
-//       if (debugUI) {
-//         Serial.println("Button B pressed");
-//       }
-//       buttonBstate = 1;
-//       if (motSwitchMode) {
-//         // Eiki motor switch mode, so we have a button for each single frame direction
-//         // P26 doesn't have a buttonB, so need to test further
-//         if (motMode == 0) {
-//           motSingle = -1;  // If stopped when button was pressed, set single frame rev
-//         } else {
-//           motSingle = 2;  // Set freeze frame
-//         }
-//       }
-//     }
-//   }
-
-// }
-
-// void released(Button2& btn) {
-//   if (btn == buttonA) {
-//     if (buttonAstate == 1) {
-
-//       if (debugUI) {
-//         Serial.println("Button A released");
-//       }
-//       if (motSingle == 2 || motSingle == 3) motSingle = 0;  // turn off single flag if we're leaving Eiki freeze-frame mode or P26 open shutter mode
-//       motSinglePrev = motSingle;
-//       buttonAstate = 0;
-//       shutterQueue(shutBladesVal, shutAngleVal);  // return shutter map to normal
-//       Serial.print("Leaving Eiki / P26 FREEZE/BURN mode... motSingle = ");
-//       Serial.println(motSingle);
-//       if (motSingle == 2 || motSingle == 3) motSingle = 0;  // turn off single flag if we're leaving Eiki freeze-frame mode or P26 open shutter mode
-//       motSinglePrev = motSingle;
-//       buttonAstate = 0;
-//       shutterQueue(shutBladesVal, shutAngleVal);  // return shutter map to normal
-//       Serial.print("Leaving Eiki / P26 FREEZE/BURN mode... motSingle = ");
-//       Serial.println(motSingle);
-//     }
-//   } else if (btn == buttonB) {
-//     if (buttonBstate == 1) {
-//       if (debugUI) {
-//         Serial.println("Button B released");
-//       }
-//       if (motSingle == 2 || motSingle == 3) motSingle = 0;  // turn off single flag if we're leaving Eiki freeze-frame mode or P26 open shutter mode
-//       motSinglePrev = motSingle;
-//       buttonBstate = 0;
-//       shutterQueue(shutBladesVal, shutAngleVal);  // return shutter map to normal
-//       Serial.print("Leaving Eiki / P26 FREEZE/BURN mode... motSingle = ");
-//       Serial.println(motSingle);
-//     }
-//   }
-// }
-// #endif
+#define debugType 3
 
 void IRAM_ATTR debugTask(void *pvParameters)
 {
@@ -364,137 +231,130 @@ void IRAM_ATTR debugTask(void *pvParameters)
   static int debugcnt1;
   static int debugcnt2;
   static int indx = 0;
+
   for (;;)
   {
 
-
-
-        // Serial.println(ledtimer);
+    // Serial.println(ledtimer);
     vTaskDelay(20);
-    // // ESP_LOGI(ledDr, "led timer value: %u", rtc_clk_apb_freq_get());
-    // UBaseType_t stack0 = uxTaskGetStackHighWaterMark(ioTASKHANDLE);
-    // UBaseType_t stack1 = uxTaskGetStackHighWaterMark(motContinuousHandle);
-    // UBaseType_t stack2 = uxTaskGetStackHighWaterMark(singleFrame);
-    // UBaseType_t stack3 = uxTaskGetStackHighWaterMark(ledDraw);
-    // UBaseType_t stack4 = uxTaskGetStackHighWaterMark(shutterPotTranslate);
-    // UBaseType_t stack5 = uxTaskGetStackHighWaterMark(motorSlewRead);
-    // UBaseType_t stack6 = uxTaskGetStackHighWaterMark(FPSactor);
-    // UBaseType_t stack7 = uxTaskGetStackHighWaterMark(externalControlParse);
-    // UBaseType_t stack8 = uxTaskGetStackHighWaterMark(internalSerialRX);
-    // UBaseType_t stack9 = uxTaskGetStackHighWaterMark(internalSerialTX);
-    // UBaseType_t stack10 = uxTaskGetStackHighWaterMark(readControls);
-    // UBaseType_t stack11 = uxTaskGetStackHighWaterMark(debugPrinter);
-    // ESP_LOGI(ioTH, "Remaining stack: %u bytes", (unsigned int) stack0);
-    // ESP_LOGI(motCont, "Remaining stack: %u bytes", (unsigned int) stack1);
-    // ESP_LOGI(sFF, "Remaining stack: %u bytes", (unsigned int) stack2);
-    // ESP_LOGI(ledDr, "Remaining stack: %u bytes", (unsigned int) stack3);
-    // ESP_LOGI(shPot, "Remaining stack: %u bytes", (unsigned int) stack4);
-    // ESP_LOGI(slew, "Remaining stack: %u bytes", (unsigned int) stack5);
-    // ESP_LOGI(fpsCalc, "Remaining stack: %u bytes", (unsigned int) stack6);
-    // ESP_LOGI(extCont, "Remaining stack: %u bytes", (unsigned int) stack7);
-    // ESP_LOGI(iRx, "Remaining stack: %u bytes", (unsigned int) stack8);
-    // ESP_LOGI(iTx, "Remaining stack: %u bytes", (unsigned int) stack9);
-    // ESP_LOGI(controlR, "Remaining stack: %u bytes", (unsigned int) stack10);
-    // ESP_LOGI(db, "Remaining stack: %u bytes", (unsigned int) stack11);
-    // ESP_LOGI(genPurp, "-----------------------------");
+    // ESP_LOGI(ledDr, "led timer value: %u", rtc_clk_apb_freq_get());
+    if (debugType == 1)
+    {
+      UBaseType_t stack0 = uxTaskGetStackHighWaterMark(ioTASKHANDLE);
+      UBaseType_t stack1 = uxTaskGetStackHighWaterMark(motContinuousHandle);
+      UBaseType_t stack2 = uxTaskGetStackHighWaterMark(singleFrame);
+      UBaseType_t stack3 = uxTaskGetStackHighWaterMark(ledDraw);
+      UBaseType_t stack4 = uxTaskGetStackHighWaterMark(shutterPotTranslate);
+      UBaseType_t stack5 = uxTaskGetStackHighWaterMark(motorSlewRead);
+      UBaseType_t stack6 = uxTaskGetStackHighWaterMark(FPSactor);
+      UBaseType_t stack7 = uxTaskGetStackHighWaterMark(externalControlParse);
+      UBaseType_t stack8 = uxTaskGetStackHighWaterMark(internalSerialRX);
+      UBaseType_t stack9 = uxTaskGetStackHighWaterMark(internalSerialTX);
+      UBaseType_t stack10 = uxTaskGetStackHighWaterMark(readControls);
+      UBaseType_t stack11 = uxTaskGetStackHighWaterMark(debugPrinter);
+      ESP_LOGI(ioTH, "Remaining stack: %u bytes", (unsigned int)stack0);
+      ESP_LOGI(motCont, "Remaining stack: %u bytes", (unsigned int)stack1);
+      ESP_LOGI(sFF, "Remaining stack: %u bytes", (unsigned int)stack2);
+      ESP_LOGI(ledDr, "Remaining stack: %u bytes", (unsigned int)stack3);
+      ESP_LOGI(shPot, "Remaining stack: %u bytes", (unsigned int)stack4);
+      ESP_LOGI(slew, "Remaining stack: %u bytes", (unsigned int)stack5);
+      ESP_LOGI(fpsCalc, "Remaining stack: %u bytes", (unsigned int)stack6);
+      ESP_LOGI(extCont, "Remaining stack: %u bytes", (unsigned int)stack7);
+      ESP_LOGI(iRx, "Remaining stack: %u bytes", (unsigned int)stack8);
+      ESP_LOGI(iTx, "Remaining stack: %u bytes", (unsigned int)stack9);
+      ESP_LOGI(controlR, "Remaining stack: %u bytes", (unsigned int)stack10);
+      ESP_LOGI(db, "Remaining stack: %u bytes", (unsigned int)stack11);
+      ESP_LOGI(genPurp, "-----------------------------");
+    }
+    else if (debugType == 2)
+    {
+      ESP_LOGI(controlR, "LED: %u", ledPotVal);
+      ESP_LOGI(controlR, "LEDCONV: %u", ledB);
 
-    // ESP_LOGI(controlR, "LED: %u", ledPotVal);
-    //         ESP_LOGI(controlR, "LEDCONV: %u", ledB);
+      ESP_LOGI(controlR, "MOT: %u", motPotVal);
+      ESP_LOGI(controlR, "MOTCONV: %u", MPotEstimate);
 
-    // ESP_LOGI(controlR, "MOT: %u", motPotVal);
-    //     ESP_LOGI(controlR, "MOTCONV: %u", MPotEstimate);
+      ESP_LOGI(controlR, "BLADES: %u", shutBladesPotVal);
+      ESP_LOGI(controlR, "BLADESCONV: %u", shutBladesVal);
 
-    // ESP_LOGI(controlR, "BLADES: %u", shutBladesPotVal);
-    //     ESP_LOGI(controlR, "BLADESCONV: %u", shutBladesVal);
+      ESP_LOGI(controlR, "ANGLE: %u", shutAnglePotVal);
+      ESP_LOGI(controlR, "ANGLECONV: %u", shutAngEstimate);
 
-    // ESP_LOGI(controlR, "ANGLE: %u", shutAnglePotVal);
-    // ESP_LOGI(controlR, "ANGLECONV: %u", shutAngEstimate);
+      ESP_LOGI(ledDr, "led angle: %u", ang);
+      ESP_LOGI(ledDr, "shutter angle post float conversion: %u", (uint32_t)shAngF);
+      ESP_LOGI(ledDr, "led in queue: %u", ledB);
+      uint64_t timer1;
+      gptimer_get_raw_count(ledtick, &timer1);
+      ESP_LOGI(ledDr, "led timer value: %u", (uint16_t)timer1);
+    }
+    else if (debugType == 3)
+    {
+      //       UBaseType_t stack0 = uxTaskGetStackHighWaterMark(ioTASKHANDLE);
 
-        // ESP_LOGI(ledDr, "led angle: %u", ang);
-    // ESP_LOGI(ledDr, "shutter angle post float conversion: %u", (uint32_t)shAngF);
-    //     ESP_LOGI(ledDr, "led in queue: %u", ledBright);
-    // uint64_t timer1;
-    // gptimer_get_raw_count(ledtick, &timer1);
-    // ESP_LOGI(ledDr, "led timer value: %u", (uint16_t)timer1);
+      // UBaseType_t stack1 = uxTaskGetStackHighWaterMark(motContinuousHandle);
 
-
-
-
-
-
-
-
-
-    //  if (debug == 1) {
-    //     uint16_t *angle2 = &ang;
-    // uint32_t *Smap = &shutterMap[*angle2];
+              // ESP_LOGI("motCont", "%u", (uint16_t)uxSemaphoreGetCount(motor_isRunning));
+      //               ESP_LOGI(motCont, "Remaining stack: %u bytes", (unsigned int)stack1);
+      //                     ESP_LOGI(ioTH, "Remaining stack: %u bytes", (unsigned int)stack0);
 
 
-              // for (int indx = 0; indx < 1024; indx+32)
-              // {
-              //       uint32_t *Smap = &shutterMap[indx];
 
-              //         Serial.print(*Smap);
-              //         Serial.flush();
+      //     uint16_t *angle2 = &ang;
+      // uint32_t *Smap = &shutterMap[*angle2];
 
-              // }
+      //           for (int indx = 0; indx < 1024; indx+32)
+      //           {
+      //                 uint32_t *Smap = &shutterMap[indx];
 
-        // indx++;
+      //                   Serial.print(*Smap);
+      //                   Serial.flush();
 
-        // // uint32_t *Smap2 = &shutterMap[indx];
-        // if (indx == ang)
-        // {
-        //   if (shutterMap[indx] == 1)
-        //   {
-        //     Serial.print("O");
-        //   }
-        //   else if (shutterMap[indx] == 0)
-        //   {
-        //     Serial.print(" ");
+      //           }
 
-        //   }
+      //     indx++;
 
-        // } else
-        // {
-        //     if (shutterMap[indx] == 1)
-        //     {
-        //         Serial.print(" ");
-        //     } else if (shutterMap[indx] == 0)
-        //     {
-        //         Serial.print("X");
-        //     }
-        // }
+      //     // uint32_t *Smap2 = &shutterMap[indx];
+      //     if (indx == ang)
+      //     {
+      //       if (shutterMap[indx] == 1)
+      //       {
+      //         Serial.print("O");
+      //       }
+      //       else if (shutterMap[indx] == 0)
+      //       {
+      //         Serial.print(" ");
 
-        // if (indx>1024)
-        // {
-        //       Serial.println("");
-        //       indx = 0;
+      //       }
 
-        // }
-    
+      //     } else
+      //     {
+      //         if (shutterMap[indx] == 1)
+      //         {
+      //             Serial.print(" ");
+      //         } else if (shutterMap[indx] == 0)
+      //         {
+      //             Serial.print("X");
+      //         }
+      //     }
+
+      //     if (indx>1024)
+      //     {
+      //           Serial.println("");
+      //           indx = 0;
+    }
   }
 }
 
-
-
-  // static int shutBladesVal = 0;
-  // static int shutAngleVal = 0;
-
-
 void readShutterControls(void *parameter)
 {
-  
-
 
   for (;;)
   {
-    vTaskDelay(500/portTICK_PERIOD_MS);
-// ESP_LOGI("shutterRead", "READ SHUTTER POT");
 
     adc_oneshot_read(adc_handle, shutBladesPotPin, &shutBladesPotVal);
     adc_oneshot_read(adc_handle, shutAnglePotPin, &shutAnglePotVal);
-        // shutBladesPotVal = 2048;
-        // shutAnglePotVal = 2048;
+    // shutBladesPotVal = 2048;
+    // shutAnglePotVal = 2048;
 #if (enableSlewPots)
     motSlewVal = motSlewPotKalman.updateEstimate(analogRead(motSlewPotPin));
     // delay(2);
@@ -505,10 +365,10 @@ void readShutterControls(void *parameter)
 #if (enableShutterPots && enableShutter)
     if (musicMode == 0)
     {
-// shutPotEstimate = shutBladesPotKalman -> UpdateRefMeasurement((float)1.0, (float)shutBladesPotVal, kalmanMEA, kalmanQ);      
-shutPotEstimate = shutBladesPotVal;      
+      // shutPotEstimate = shutBladesPotKalman -> UpdateRefMeasurement((float)1.0, (float)shutBladesPotVal, kalmanMEA, kalmanQ);
+      shutPotEstimate = shutBladesPotVal;
 
-if (shutPotEstimate < 800)
+      if (shutPotEstimate < 800)
       {
         shutBladesVal = 1;
       }
@@ -521,7 +381,7 @@ if (shutPotEstimate < 800)
         shutBladesVal = 3;
       }
       // shutAngEstimate = shutAnglePotKalman -> UpdateRefMeasurement((float)1.0, (float)shutBladesPotVal, kalmanMEA, kalmanQ);
-            shutAngEstimate = shutAnglePotVal;
+      shutAngEstimate = shutAnglePotVal;
 
       shutAngEstimate = map(shutAngEstimate, 0, 4090, 1, 100); // map ADC input to range of shutter angle
     }
@@ -531,9 +391,9 @@ if (shutPotEstimate < 800)
       // inject values during Music Mode
     }
 
-    xQueueSend(q_shutterBlade, &shutBladesVal, 2); // send shutter blade pot value to shutter task via queue
-    xQueueSend(q_shutterAngle, &shutAngEstimate, 2);  // send shutter angle pot value to shutter task via queue
-                                                   // clip values
+    xQueueSend(q_shutterBlade, &shutBladesVal, 2);   // send shutter blade pot value to shutter task via queue
+    xQueueSend(q_shutterAngle, &shutAngEstimate, 2); // send shutter angle pot value to shutter task via queue
+                                                     // clip values
 
 #endif
   }

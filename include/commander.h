@@ -1,3 +1,8 @@
+ char tab2[256];
+   std::string update;
+
+
+
 
 
 void serialReadTask(void *pvparemeters) {
@@ -11,36 +16,10 @@ void serialReadTask(void *pvparemeters) {
   }
           // unsigned int temp2 = uxTaskGetStackHighWaterMark(nullptr);
     // Serial.print("serial="); Serial.println(temp2);
-  vTaskDelay(10 / portTICK_PERIOD_MS);
+  vTaskDelay(20 / portTICK_PERIOD_MS);
 
 }
 
-void serial2RX(void * parameter) {
-    char* recv = 0;
-
-  for (;;) {
-    uart_read_bytes(UART_NUM_2, (uint8_t*)&recv, 1, portMAX_DELAY);
-    xQueueSend(outCommanderQueue, &recv, portMAX_DELAY);
-        vTaskDelay(500 / portTICK_PERIOD_MS); // adjust this delay as needed to control the rate of sending data. if we're sending the full data string, we might want to increase this delay to prevent flooding the commander with too many messages.
-
-  }
-}
-
-static char send;
-void serial2tx(void * parameter) {
-  //     // char* sendtest = "<1.35,0.79,4094,1683,0,95,0,0>";
-    uint16_t rx_fifo_len, status;
-  uint16_t i;
-  for (;;) {
-
-    // xQueueReceive(outCommanderQueue, &send, 5);
-
-    // Serial2.println(send);
-
-
-    vTaskDelay(20 / portTICK_PERIOD_MS); // adjust this delay as needed to control the rate of sending data. if we're sending the full data string, we might want to increase this delay to prevent flooding the commander with too many messages.
-  }
-}
 
 
 
@@ -75,36 +54,80 @@ void externalcontrol() {
 
 //     uint8_t recvByte;
 //     uint8_t peekLED;
+static int displayUpdate = 0;
+    static int sfStatus = 0;
+  static char received[10];
+  static bool dataRecvd;
 
 
     for(;;) {
 
+ if (intDirection == 'f' || intDirection == 'r')
+ {
+  displayUpdate = 1;
+  if(uxSemaphoreGetCount(singleFraming) == 1)
+  {
+    sfStatus =0;
+  }
 
-//         if (sendingIndividualCommand == 1) {
-//             if (uxQueueMessagesWaiting(outCommanderQueue) == 0) 
-//             {
-//                 sendingIndividualCommand = 0;
-//                 //this makes it so a command is sent with priority, and since the data string is sent constantly this shouldnt be a noticable break.
-//             }
+ } else if (intDirection == 'p' || intDirection == 'x')
+ {
+  if(uxSemaphoreGetCount(singleFraming) == 0)
+  {
+    sfStatus = 1;
+    displayUpdate = 1;
+  } else 
+  {
+    sfStatus = 0;
+    displayUpdate = 0;
+  }
+ }
+//  char data;
+    uint8_t* data = (uint8_t*) malloc(256 + 1);
+    // while (1) {
+         const int rxBytes = uart_read_bytes(UART_NUM_2, data, 256, 10);
+        if (rxBytes > 0) {
+            data[rxBytes] = 0;
+            for(int i = 0; i < rxBytes; i++)
+            {
+              if (i == 0)
+              {
+                received[0] = data[i];
+              }
+            }
+            dataRecvd = true;
+            
+        }
 
-//         } 
-//         else if (sendingIndividualCommand == 0 || uxQueueMessagesWaiting(outCommanderQueue) == 0) 
-//         {
-// xQueueReceive(q_peekLED, &peekLED, 5);
-//  static String data = "<" + String(FPSreal) + "," + String(shutAngleVal) + "," + String(peekLED) + "," + String(shutBladesPotVal) + "," + String("1") + "," + String(frame) + "," + String(motSingle) + "," + String(mCopyStatus) + ">";
-// //  static char* dataChar = data.c_str(); // convert String to const char*
-// //  xQueueSend(outCommanderQueue, &data, portMAX_DELAY); // send the data string to the queue for transmission over UART
-//  Serial2.println(data);
-//         }
-//  //ill be thrilled if this works. then i can probably setup a parameter that adjusts speed based on usage or asks for a different string depending on mode.
+    // }
+    free(data);
 
 
-//   if (musicMode == 0) {
-    
-//     xQueueReceive(outCommanderQueue, &recvByte, 0); // non-blocking receive from the queue
 
 
-//       char c = recvByte; // interpret the received byte as a character
+ update = '<' + std::to_string(Mangle) + ',' + std::to_string(shutAngEstimate) + ',' + std::to_string(ledB) + ',' + std::to_string(shutBladesVal) + ',' + std::to_string(displayUpdate) + ',' + std::to_string(frame) + ',' + std::to_string(sfStatus) + ',' + std::to_string(mCopyStatus) + '>';
+        // update = "Hello world";
+            const int len = update.length();
+                  const char *strn = update.c_str();
+        const int txBytes = uart_write_bytes(UART_NUM_2, strn, len);
+
+
+if (dataRecvd == true)
+{
+  if(commandLibrary(deviceType, received[0]) == true)
+  {
+    ESP_LOGI("serial", "message handled successfully");
+  } else
+  {
+    ESP_LOGI("serial", "message handling failure");
+
+  }
+  dataRecvd = false;
+}
+
+//   received[0] = NULL;
+// }  
+    // free(data);
 
 //       if (c == 'g') {
 //         opticalPrinter = 1;  //i request this every time just to be sure that the proj understands!

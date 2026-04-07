@@ -22,11 +22,9 @@ requires the definition of a shutter count in main config file
 #define SETTINGS1_REG 0x0018
 #define SETTINGS2_REG 0x0019
 
-static spi_host_device_t enc = SPI3_HOST;
-static spi_device_handle_t encoder;
+spi_device_handle_t encoder;
 
-
-uint8_t IRAM_ATTR calculateParity(uint16_t value)
+inline uint8_t IRAM_ATTR calculateParity(uint16_t value)
 {
     uint8_t count = 0;
     for (int i = 0; i < 16; i++)
@@ -43,6 +41,7 @@ uint8_t IRAM_ATTR calculateParity(uint16_t value)
 void configEncoderSPI(uint16_t coreID)
 {
     esp_err_t ret;
+    spi_host_device_t enc = SPI3_HOST;
 
     spi_bus_config_t buscfg = {
         .mosi_io_num = (gpio_num_t)EncMOSI,
@@ -71,14 +70,6 @@ void configEncoderSPI(uint16_t coreID)
     ret = spi_bus_add_device(enc, &devcfg, &encoder);
     assert(ret == ESP_OK);
 
-    // xTaskCreatePinnedToCore(
-    //     readAngle_raw,
-    //     "read angle",
-    //     6000,
-    //     NULL,
-    //     configMAX_PRIORITIES - 4,
-    //     NULL,
-    //     coreID);
 }
 
 uint16_t IRAM_ATTR readAngle_raw(uint16_t Addr)

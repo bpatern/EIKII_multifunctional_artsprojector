@@ -31,6 +31,8 @@ unsigned long millis() {
 #include <soc/gpio_struct.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/message_buffer.h"
+
 #include "driver/uart.h"
 #include "esp_intr_alloc.h"
 #include "driver/gptimer.h"
@@ -50,6 +52,7 @@ unsigned long millis() {
 #include "hobbywing_commander_functions.h"
 #include "config_functions.h"
 #include "motor_logic.h"
+#include "commander_recognized.h"
 #include "commander.h"
 #include "ui.h"
 #include <dma_spiencoder_implementation.h>
@@ -67,6 +70,7 @@ extern "C" void app_main(void) {
 
         createObj();
         uartConfig();
+        ledCoolingSetup();
 
 
 
@@ -116,16 +120,17 @@ extern "C" void app_main(void) {
                 }
             }
 
-        vTaskResume(readControls);
-        vTaskResume(internalSerialRX);
-        vTaskResume(internalSerialTX);
+        // vTaskResume(internalSerialRX);
+        // vTaskResume(internalSerialTX);
         vTaskResume(singleFrame);
         vTaskResume(shutterPotTranslate);
         vTaskResume(readControls);
         vTaskResume(externalControlParse);
         vTaskResume(FPSactor);
-        vTaskResume(motorSlewRead);
         vTaskResume(ioTASKHANDLE);
+        vTaskResume(motorSlewRead);
+        vTaskResume(motContinuousHandle);
+
 
                 gptimer_start(ledtick);
 

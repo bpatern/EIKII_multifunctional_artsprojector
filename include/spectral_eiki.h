@@ -25,6 +25,8 @@ int statusLedColor = 1; //write status into a function
 
 #define useAS5047 1
 
+const char deviceType = 'e';
+
 const int countsPerFrame = 1024;   // how many encoder transitions per frame
 const int encoderDir = 0;   // Which magnet spin direction matches forward movement? 0 = clockwise, 1 = counter-clockwise
 const float FPSmultiplier = 1; // difference between computed and actual FPS (P26 is not 1:1) 

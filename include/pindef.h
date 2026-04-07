@@ -1,6 +1,6 @@
 // Encoder
-#define EncI 17   // encoder pulse Index (AS5047 sensor)
-#define EncA 16   // encoder pulse A (AS5047 sensor)
+#define exhaustFan 17   // encoder pulse Index (AS5047 sensor)
+#define twelveVoltFans 16   // encoder pulse A (AS5047 sensor)
 #define EncB 4    // encoder pulse B (AS5047 sensor)
 #define EncCSN 5  // encoder SPI CSN Pin (AS5047 sensor) - Library also reserves GPIO 18, 19, 23 for SPI
 #define EncMOSI 23
